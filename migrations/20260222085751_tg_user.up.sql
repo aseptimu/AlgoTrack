@@ -1,0 +1,6 @@
+CREATE TABLE IF NOT EXISTS tg_user (
+    user_id BIGINT PRIMARY KEY,
+    chat_id BIGINT NOT NULL,
+    username TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

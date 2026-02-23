@@ -1,0 +1,34 @@
+services:
+  app:
+    depends_on:
+      - db
+    build:
+      dockerfile: docker/Dockerfile
+    networks:
+      - algo-app
+    ports:
+      - "8080:8080"
+    environment:
+      TELEGRAM_TOKEN: ${TELEGRAM_TOKEN:?error}
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}?sslmode=disable
+
+  db:
+    image: postgres:18
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?error}
+      POSTGRES_USER: ${POSTGRES_USER:-app}
+      POSTGRES_DB: ${POSTGRES_DB:-master}
+    networks:
+      - algo-app
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    ports:
+      - "6000:5432"
+
+volumes:
+  postgres-data:
+
+networks:
+  algo-app:
+    driver: bridge
+
