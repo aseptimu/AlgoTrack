@@ -1,7 +1,8 @@
 services:
   app:
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     build:
       dockerfile: docker/Dockerfile
     networks:
@@ -24,6 +25,28 @@ services:
       - postgres-data:/var/lib/postgresql
     ports:
       - "6000:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-app} -d ${POSTGRES_DB:-master}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+
+  migrate:
+    image: migrate/migrate
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - algo-app
+    volumes:
+      - ./migrations:/migrations
+    command:
+      [
+        "-path=/migrations",
+        "-database=postgres://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:?error}@db:5432/${POSTGRES_DB:-master}?sslmode=disable",
+        "up"
+      ]
 
 volumes:
   postgres-data:

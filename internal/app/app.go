@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"github.com/aseptimu/AlgoTrack/internal/client"
 	"github.com/aseptimu/AlgoTrack/internal/config"
 	"github.com/aseptimu/AlgoTrack/internal/db"
 	"github.com/aseptimu/AlgoTrack/internal/repo"
@@ -28,11 +29,13 @@ func Run(ctx context.Context) error {
 		return err
 	}
 
+	leetcodeClient := client.NewHTTPLeetCodeClient()
+
 	tgUserRepo := repo.NewTgUserRepo(database)
-	tgUserService := service.NewUserService(tgUserRepo)
+	tgUserService := service.NewUserService(tgUserRepo, logger)
 
 	taskRepo := repo.NewTaskRepo(database)
-	taskService := service.NewTaskService(taskRepo)
+	taskService := service.NewTaskService(tgUserService, taskRepo, leetcodeClient, logger)
 
 	myBot, err := telegram.New(cfg.BotToken, logger)
 	if err != nil {
@@ -41,7 +44,7 @@ func Run(ctx context.Context) error {
 	}
 
 	startHandler := start.New()
-	addHandler := add.New(tgUserService, taskService, logger)
+	addHandler := add.New(taskService, logger)
 	textHandler := fallback.New(logger)
 
 	router.Register(myBot.Raw(), router.Handlers{
