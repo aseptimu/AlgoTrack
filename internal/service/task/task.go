@@ -1,14 +1,11 @@
-package service
+package task
 
 import (
 	"context"
 	"github.com/aseptimu/AlgoTrack/internal/model"
+	"github.com/aseptimu/AlgoTrack/internal/service"
 	"log/slog"
 )
-
-type UserManager interface {
-	EnsureExists(ctx context.Context, user *model.User) error
-}
 
 type ProblemProvider interface {
 	GetProblemByNumber(ctx context.Context, number int64) (*model.ProblemInfo, error)
@@ -19,18 +16,18 @@ type TaskManager interface {
 }
 
 type TaskService struct {
-	userManager UserManager
+	userManager service.UserManager
 	repo        TaskManager
 	problems    ProblemProvider
 	logger      *slog.Logger
 }
 
-func NewTaskService(userManager UserManager, repo TaskManager, problem ProblemProvider, logger *slog.Logger) *TaskService {
+func NewTaskService(userManager service.UserManager, repo TaskManager, problem ProblemProvider, logger *slog.Logger) *TaskService {
 	return &TaskService{userManager, repo, problem, logger}
 }
 
 func (t *TaskService) Add(ctx context.Context, task *model.Task, user *model.User) error {
-	err := t.userManager.EnsureExists(ctx, user)
+	_, err := t.userManager.EnsureExistsAndGet(ctx, user)
 	if err != nil {
 		t.logger.Error("failed to ensure user existence while creating task", "err", err)
 		return err

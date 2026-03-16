@@ -5,10 +5,14 @@ import (
 	"github.com/aseptimu/AlgoTrack/internal/client"
 	"github.com/aseptimu/AlgoTrack/internal/config"
 	"github.com/aseptimu/AlgoTrack/internal/db"
-	"github.com/aseptimu/AlgoTrack/internal/repo"
-	"github.com/aseptimu/AlgoTrack/internal/service"
+	task2 "github.com/aseptimu/AlgoTrack/internal/repo/task"
+	user2 "github.com/aseptimu/AlgoTrack/internal/repo/user"
+	"github.com/aseptimu/AlgoTrack/internal/service/task"
+	"github.com/aseptimu/AlgoTrack/internal/service/user"
 	"github.com/aseptimu/AlgoTrack/internal/telegram"
 	"github.com/aseptimu/AlgoTrack/internal/telegram/commands/add"
+	"github.com/aseptimu/AlgoTrack/internal/telegram/commands/goal"
+	"github.com/aseptimu/AlgoTrack/internal/telegram/commands/setgoal"
 	"github.com/aseptimu/AlgoTrack/internal/telegram/commands/start"
 	"github.com/aseptimu/AlgoTrack/internal/telegram/messages/fallback"
 	"github.com/aseptimu/AlgoTrack/internal/telegram/router"
@@ -31,11 +35,11 @@ func Run(ctx context.Context) error {
 
 	leetcodeClient := client.NewHTTPLeetCodeClient()
 
-	tgUserRepo := repo.NewTgUserRepo(database)
-	tgUserService := service.NewUserService(tgUserRepo, logger)
+	tgUserRepo := user2.NewTgUserRepo(database)
+	tgUserService := user.NewUserService(tgUserRepo, logger)
 
-	taskRepo := repo.NewTaskRepo(database)
-	taskService := service.NewTaskService(tgUserService, taskRepo, leetcodeClient, logger)
+	taskRepo := task2.NewTaskRepo(database)
+	taskService := task.NewTaskService(tgUserService, taskRepo, leetcodeClient, logger)
 
 	myBot, err := telegram.New(cfg.BotToken, logger)
 	if err != nil {
@@ -43,14 +47,18 @@ func Run(ctx context.Context) error {
 		return err
 	}
 
-	startHandler := start.New()
+	startHandler := start.New(tgUserService, logger)
 	addHandler := add.New(taskService, logger)
 	textHandler := fallback.New(logger)
+	goalCallbackHandler := goal.New(tgUserService, logger)
+	setGoalHandler := setgoal.New(tgUserService, logger)
 
 	router.Register(myBot.Raw(), router.Handlers{
-		Start: startHandler,
-		Add:   addHandler,
-		Text:  textHandler,
+		Start:        startHandler,
+		Add:          addHandler,
+		Text:         textHandler,
+		GoalCallback: goalCallbackHandler,
+		SetGoal:      setGoalHandler,
 	})
 
 	myBot.Run(ctx)

@@ -20,10 +20,14 @@ type HTTPLeetCodeClient struct {
 }
 
 func NewHTTPLeetCodeClient() *HTTPLeetCodeClient {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = nil
+
 	return &HTTPLeetCodeClient{
 		baseURL: "https://leetcode.com/graphql",
 		httpClient: &http.Client{
-			Timeout: 15 * time.Second,
+			Timeout:   15 * time.Second,
+			Transport: transport,
 		},
 	}
 }
@@ -37,7 +41,7 @@ type problemsetQuestionListResponse struct {
 	Data struct {
 		ProblemsetQuestionList struct {
 			Questions []struct {
-				FrontendQuestionID string `json:"frontendQuestionId"`
+				FrontendQuestionID string `json:"questionFrontendId"`
 				Title              string `json:"title"`
 				TitleSlug          string `json:"titleSlug"`
 				Difficulty         string `json:"difficulty"`
@@ -54,33 +58,25 @@ func (c *HTTPLeetCodeClient) GetProblemByNumber(ctx context.Context, number int6
 		return nil, fmt.Errorf("invalid problem number: %d", number)
 	}
 
-	query := `
-query problemsetQuestionList($categorySlug: String, $limit: Int, $skip: Int, $filters: QuestionListFilterInput) {
+	query := fmt.Sprintf(`query {
   problemsetQuestionList: questionList(
-    categorySlug: $categorySlug
-    limit: $limit
-    skip: $skip
-    filters: $filters
+    categorySlug: ""
+    limit: 1
+    skip: %d
+    filters: {}
   ) {
+    total: totalNum
     questions: data {
-      frontendQuestionId
+      questionFrontendId
       title
       titleSlug
       difficulty
     }
   }
-}`
+}`, number-1)
 
 	reqBody := leetCodeGraphQLRequest{
 		Query: query,
-		Variables: map[string]any{
-			"categorySlug": "all-code-essentials",
-			"skip":         0,
-			"limit":        1,
-			"filters": map[string]any{
-				"searchKeywords": fmt.Sprintf("%d", number),
-			},
-		},
 	}
 
 	body, err := json.Marshal(reqBody)
@@ -94,9 +90,6 @@ query problemsetQuestionList($categorySlug: String, $limit: Int, $skip: Int, $fi
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Referer", "https://leetcode.com/problemset/")
-	req.Header.Set("Origin", "https://leetcode.com")
-	req.Header.Set("User-Agent", "AlgoTrack/1.0")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
