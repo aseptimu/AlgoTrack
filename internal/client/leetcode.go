@@ -3,9 +3,11 @@ package client
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"time"
 
@@ -20,8 +22,16 @@ type HTTPLeetCodeClient struct {
 }
 
 func NewHTTPLeetCodeClient() *HTTPLeetCodeClient {
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.Proxy = nil
+	transport := &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: (&net.Dialer{
+			Timeout:   10 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		ForceAttemptHTTP2:   false,
+		TLSHandshakeTimeout: 10 * time.Second,
+		TLSNextProto:        make(map[string]func(string, *tls.Conn) http.RoundTripper),
+	}
 
 	return &HTTPLeetCodeClient{
 		baseURL: "https://leetcode.com/graphql",

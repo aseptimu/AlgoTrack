@@ -2,6 +2,7 @@ package fallback
 
 import (
 	"context"
+	"github.com/aseptimu/AlgoTrack/internal/telegram/reply"
 	"log/slog"
 	"strings"
 
@@ -31,8 +32,5 @@ func (h *Handler) Handle(ctx context.Context, b *tgbot.Bot, update *models.Updat
 		return
 	}
 
-	_, _ = b.SendMessage(ctx, &tgbot.SendMessageParams{
-		ChatID: chatID,
-		Text:   "Я пока понимаю только команды 🙂 Нажми /start",
-	})
+	reply.Text(ctx, b, chatID, "Я пока понимаю только команды 🙂 Нажми /start")
 }
