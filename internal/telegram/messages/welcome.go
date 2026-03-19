@@ -17,7 +17,7 @@ What is your goal?
 const Commands = `Available commands:
 /start - show welcome message
 /help - show all commands
-/add &lt;number&gt; - save solved LeetCode problem
+/add &lt;number&gt; - save solved LeetCode problem or mark repetition
 /goal &lt;number&gt; [easy|medium|hard] - set or update your goal`
 
 const Help = `

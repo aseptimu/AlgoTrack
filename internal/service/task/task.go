@@ -2,9 +2,12 @@ package task
 
 import (
 	"context"
+	"errors"
 	"log/slog"
+	"time"
 
 	"github.com/aseptimu/AlgoTrack/internal/model"
+	"github.com/aseptimu/AlgoTrack/internal/service"
 )
 
 type ProblemProvider interface {
@@ -16,8 +19,11 @@ type UserEnsurer interface {
 }
 
 type Repository interface {
-	Create(ctx context.Context, task *model.Task, userID int64) (*int64, error)
+	Create(ctx context.Context, task *model.Task, userID int64) (*model.Task, error)
+	GetByTaskNumber(ctx context.Context, userID, taskNumber int64) (*model.Task, error)
+	Review(ctx context.Context, task *model.Task, userID int64) (*model.Task, error)
 	GetStats(ctx context.Context, userID int64) (*model.TaskStats, error)
+	GetDueReviews(ctx context.Context, nowTime time.Time) ([]model.DueReviewBatch, error)
 }
 
 type TaskService struct {
@@ -26,6 +32,9 @@ type TaskService struct {
 	problems ProblemProvider
 	logger   *slog.Logger
 }
+
+// Expanding intervals keep early retrieval close and later reviews wider apart.
+var reviewIntervals = []int{1, 3, 7, 14, 30, 60, 120}
 
 func NewTaskService(
 	users UserEnsurer,
@@ -58,20 +67,40 @@ func (t *TaskService) Add(ctx context.Context, taskNumber int64, incomingUser *m
 		return nil, err
 	}
 
+	reviewedAt := time.Now().UTC()
 	task := model.Task{
-		UserID:     &user.UserID,
-		TaskNumber: taskNumber,
-		Link:       problem.Link,
-		Title:      &problem.Title,
-		Difficulty: &problem.Difficulty,
+		UserID:         &user.UserID,
+		TaskNumber:     taskNumber,
+		Link:           problem.Link,
+		Title:          &problem.Title,
+		Difficulty:     &problem.Difficulty,
+		ReviewCount:    1,
+		LastReviewedAt: &reviewedAt,
+		NextReviewAt:   nextReviewAt(1, reviewedAt),
 	}
 
-	taskID, err := t.repo.Create(ctx, &task, user.UserID)
-	if err != nil {
-		t.logger.Error("failed to create task", "err", err, "userID", user.UserID, "taskNumber", taskNumber)
+	storedTask, err := t.repo.GetByTaskNumber(ctx, user.UserID, taskNumber)
+	isReview := false
+	switch {
+	case err == nil:
+		isReview = true
+		task.ReviewCount = storedTask.ReviewCount + 1
+		task.NextReviewAt = nextReviewAt(task.ReviewCount, reviewedAt)
+		storedTask, err = t.repo.Review(ctx, &task, user.UserID)
+		if err != nil {
+			t.logger.Error("failed to review task", "err", err, "userID", user.UserID, "taskNumber", taskNumber)
+			return nil, err
+		}
+	case errors.Is(err, service.ErrTaskNotFound):
+		storedTask, err = t.repo.Create(ctx, &task, user.UserID)
+		if err != nil {
+			t.logger.Error("failed to create task", "err", err, "userID", user.UserID, "taskNumber", taskNumber)
+			return nil, err
+		}
+	default:
+		t.logger.Error("failed to get task before add/review", "err", err, "userID", user.UserID, "taskNumber", taskNumber)
 		return nil, err
 	}
-	task.ID = taskID
 
 	stats, err := t.repo.GetStats(ctx, user.UserID)
 	if err != nil {
@@ -80,10 +109,34 @@ func (t *TaskService) Add(ctx context.Context, taskNumber int64, incomingUser *m
 	}
 
 	return &model.AddTaskResult{
-		Task:         task,
+		Task:         *storedTask,
 		Stats:        *stats,
 		GoalProgress: buildGoalProgress(user, stats),
+		IsReview:     isReview,
 	}, nil
+}
+
+func nextReviewAt(reviewCount int64, from time.Time) *time.Time {
+	location := moscowLocation()
+	localTime := from.In(location)
+	intervalDays := reviewIntervals[len(reviewIntervals)-1]
+	if reviewCount-1 < int64(len(reviewIntervals)) {
+		intervalDays = reviewIntervals[reviewCount-1]
+	}
+
+	nextDate := localTime.AddDate(0, 0, intervalDays)
+	scheduled := time.Date(nextDate.Year(), nextDate.Month(), nextDate.Day(), 9, 0, 0, 0, location)
+	utc := scheduled.UTC()
+	return &utc
+}
+
+func moscowLocation() *time.Location {
+	location, err := time.LoadLocation("Europe/Moscow")
+	if err != nil {
+		return time.FixedZone("MSK", 3*60*60)
+	}
+
+	return location
 }
 
 func buildGoalProgress(user *model.User, stats *model.TaskStats) *model.UserProgress {

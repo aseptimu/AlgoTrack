@@ -7,12 +7,11 @@ import (
 	"github.com/aseptimu/AlgoTrack/internal/service"
 	"html"
 	"strings"
+	"time"
 )
 
 func taskErrorText(err error) string {
-	if errors.Is(err, service.ErrTaskAlreadyExists) {
-		return "Данная задача уже добавлена. Используй /update"
-	} else if errors.Is(err, service.ErrFailedUserCreate) {
+	if errors.Is(err, service.ErrFailedUserCreate) {
 		return "Не смог сохранить пользователя 😔 Попробуй позже."
 	} else if errors.Is(err, service.ErrTgUserNotFound) {
 		return "Пользователь не найден 😔"
@@ -40,9 +39,26 @@ func buildAddSuccessMessage(result *model.AddTaskResult) string {
 		goalBlock = "\n\n<b>Цели</b>\n" + formatGoalLines(result.GoalProgress.Items)
 	}
 
+	statusTitle := "✅ <b>Задача сохранена</b>"
+	if result.IsReview {
+		statusTitle = "🔁 <b>Повторение засчитано</b>"
+	}
+
+	reviewMeta := ""
+	if task.LastReviewedAt != nil && task.NextReviewAt != nil {
+		reviewMeta = fmt.Sprintf(
+			"\n\n<b>Повторения</b>\nРешена раз: <b>%d</b>\nПоследний раз: <b>%s</b>\nСледующее повторение: <b>%s</b>",
+			task.ReviewCount,
+			formatMoscowTime(*task.LastReviewedAt),
+			formatMoscowTime(*task.NextReviewAt),
+		)
+	}
+
 	return fmt.Sprintf(
-		"✅ <b>Задача сохранена</b>\n\n%s\n\n➖➖➖➖➖➖\n<b>Статистика</b>\nРешено всего: %d\nEasy: %d\nMedium: %d\nHard: %d%s",
+		"%s\n\n%s%s\n\n➖➖➖➖➖➖\n<b>Статистика</b>\nРешено всего: %d\nEasy: %d\nMedium: %d\nHard: %d%s",
+		statusTitle,
 		taskLine,
+		reviewMeta,
 		stats.Total,
 		stats.Easy,
 		stats.Medium,
@@ -73,4 +89,9 @@ func goalBadge(label string) string {
 	default:
 		return "<b>" + label + "</b>"
 	}
+}
+
+func formatMoscowTime(value time.Time) string {
+	location := time.FixedZone("MSK", 3*60*60)
+	return value.In(location).Format("02.01.2006 15:04 MSK")
 }

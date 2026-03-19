@@ -7,6 +7,7 @@ import (
 	"github.com/aseptimu/AlgoTrack/internal/db"
 	task2 "github.com/aseptimu/AlgoTrack/internal/repo/task"
 	user2 "github.com/aseptimu/AlgoTrack/internal/repo/user"
+	"github.com/aseptimu/AlgoTrack/internal/service/review"
 	"github.com/aseptimu/AlgoTrack/internal/service/task"
 	"github.com/aseptimu/AlgoTrack/internal/service/user"
 	"github.com/aseptimu/AlgoTrack/internal/telegram"
@@ -53,6 +54,7 @@ func Run(ctx context.Context) error {
 	textHandler := fallback.New(logger)
 	goalCallbackHandler := goal.New(tgUserService, logger)
 	setGoalHandler := setgoal.New(tgUserService, logger)
+	reminderService := review.NewReminderService(taskRepo, myBot.Raw(), logger)
 
 	router.Register(myBot.Raw(), router.Handlers{
 		Start:        startHandler,
@@ -63,6 +65,7 @@ func Run(ctx context.Context) error {
 		SetGoal:      setGoalHandler,
 	})
 
+	go reminderService.Start(ctx)
 	myBot.Run(ctx)
 	return nil
 }

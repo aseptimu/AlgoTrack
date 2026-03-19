@@ -12,3 +12,4 @@ var ErrInvalidDifficulty = errors.New("invalid difficulty")
 // Task
 
 var ErrTaskAlreadyExists = errors.New("task already exists for user")
+var ErrTaskNotFound = errors.New("task not found for user")
