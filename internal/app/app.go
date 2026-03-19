@@ -12,6 +12,7 @@ import (
 	"github.com/aseptimu/AlgoTrack/internal/telegram"
 	"github.com/aseptimu/AlgoTrack/internal/telegram/commands/add"
 	"github.com/aseptimu/AlgoTrack/internal/telegram/commands/goal"
+	helpcmd "github.com/aseptimu/AlgoTrack/internal/telegram/commands/help"
 	"github.com/aseptimu/AlgoTrack/internal/telegram/commands/setgoal"
 	"github.com/aseptimu/AlgoTrack/internal/telegram/commands/start"
 	"github.com/aseptimu/AlgoTrack/internal/telegram/messages/fallback"
@@ -49,6 +50,7 @@ func Run(ctx context.Context) error {
 
 	startHandler := start.New(tgUserService, logger)
 	addHandler := add.New(taskService, logger)
+	helpHandler := helpcmd.New(logger)
 	textHandler := fallback.New(logger)
 	goalCallbackHandler := goal.New(tgUserService, logger)
 	setGoalHandler := setgoal.New(tgUserService, logger)
@@ -56,6 +58,7 @@ func Run(ctx context.Context) error {
 	router.Register(myBot.Raw(), router.Handlers{
 		Start:        startHandler,
 		Add:          addHandler,
+		Help:         helpHandler,
 		Text:         textHandler,
 		GoalCallback: goalCallbackHandler,
 		SetGoal:      setGoalHandler,

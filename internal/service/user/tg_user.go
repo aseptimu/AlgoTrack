@@ -39,7 +39,7 @@ func (t *TgUserService) SetGoal(ctx context.Context, userID, goal int64) error {
 
 func (t *TgUserService) BuildWelcomeMessage(ctx context.Context, user *model.User) (string, error) {
 	if user.GoalTotal == nil || *user.GoalTotal <= 0 {
-		return messages.WelcomeNoGoal, nil
+		return fmt.Sprintf(messages.WelcomeNoGoal, messages.Commands), nil
 	}
 
 	progress, err := t.GetProgress(ctx, user)
@@ -52,6 +52,7 @@ func (t *TgUserService) BuildWelcomeMessage(ctx context.Context, user *model.Use
 		progress.Solved,
 		progress.GoalTotal,
 		progress.Remaining,
+		messages.Commands,
 	), nil
 }
 

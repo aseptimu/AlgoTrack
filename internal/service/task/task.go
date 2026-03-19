@@ -41,6 +41,7 @@ func (t *TaskService) Add(ctx context.Context, task *model.Task, user *model.Use
 
 	task.Link = problem.Link
 	task.Description = &problem.Title
+	task.Difficulty = &problem.Difficulty
 	_, err = t.repo.CreateTask(ctx, task, user.UserID)
 	if err != nil {
 		t.logger.Error("failed to create task", "err", err)

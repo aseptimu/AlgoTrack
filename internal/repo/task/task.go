@@ -20,11 +20,11 @@ func NewTaskRepo(db *db.DB) *TaskRepo {
 func (t *TaskRepo) CreateTask(ctx context.Context, task *model.Task, userID int64) (*int64, error) {
 	var taskId int64
 	err := t.db.Pool.QueryRow(ctx,
-		`INSERT INTO algo_tasks (user_id, link, description, task_number)
-		 VALUES ($1, $2, $3, $4)
+		`INSERT INTO algo_tasks (user_id, link, description, task_number, difficulty)
+		 VALUES ($1, $2, $3, $4, $5)
 		 ON CONFLICT (task_number) DO NOTHING 
 		 RETURNING id`,
-		userID, task.Link, task.Description, task.TaskNumber,
+		userID, task.Link, task.Description, task.TaskNumber, task.Difficulty,
 	).Scan(&taskId)
 
 	if err != nil {

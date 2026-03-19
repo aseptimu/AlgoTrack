@@ -5,4 +5,5 @@ type Task struct {
 	TaskNumber  int64
 	Link        string
 	Description *string
+	Difficulty  *string
 }

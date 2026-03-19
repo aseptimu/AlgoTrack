@@ -10,7 +10,9 @@ This bot helps you:
 
 Let's start.
 
-What is your goal?`
+What is your goal?
+
+%s`
 
 const WelcomeWithProgress = `
 Welcome back to AlgoTrack
@@ -18,7 +20,20 @@ Welcome back to AlgoTrack
 Progress: %d / %d
 Remaining: %d
 
-Keep going 🚀`
+Keep going 🚀
+
+%s`
+
+const Commands = `Available commands:
+/start - show welcome message
+/help - show all commands
+/add <number> - save solved LeetCode problem
+/goal <number> - set or update your goal`
+
+const Help = `
+AlgoTrack commands
+
+` + Commands
 
 const GoalUsage = `
 Use the command like this:
