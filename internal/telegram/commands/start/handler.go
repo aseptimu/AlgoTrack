@@ -43,11 +43,12 @@ func (h *Handler) Handle(ctx context.Context, b *tgbot.Bot, update *models.Updat
 	}
 
 	message := &tgbot.SendMessageParams{
-		ChatID: chatID,
-		Text:   text,
+		ChatID:    chatID,
+		Text:      text,
+		ParseMode: models.ParseModeHTML,
 	}
 
-	if user.GoalTotal == nil || *user.GoalTotal <= 0 {
+	if user.GoalTotal == nil && user.GoalEasy == nil && user.GoalMedium == nil && user.GoalHard == nil {
 		message.ReplyMarkup = &models.InlineKeyboardMarkup{
 			InlineKeyboard: [][]models.InlineKeyboardButton{
 				{

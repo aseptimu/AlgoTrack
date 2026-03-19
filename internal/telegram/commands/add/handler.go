@@ -2,27 +2,28 @@ package add
 
 import (
 	"context"
+	"log/slog"
+
 	"github.com/aseptimu/AlgoTrack/internal/model"
 	"github.com/aseptimu/AlgoTrack/internal/telegram/reply"
 	tgbot "github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
-	"log/slog"
 )
 
-type TaskCreator interface {
-	Add(ctx context.Context, task *model.Task, user *model.User) error
+type TaskAdder interface {
+	Add(ctx context.Context, taskNumber int64, user *model.User) (*model.AddTaskResult, error)
 }
 
 type Handler struct {
-	creator TaskCreator
-	log     *slog.Logger
+	adder TaskAdder
+	log   *slog.Logger
 }
 
-func New(creator TaskCreator, log *slog.Logger) *Handler {
+func New(adder TaskAdder, log *slog.Logger) *Handler {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Handler{creator: creator, log: log}
+	return &Handler{adder: adder, log: log}
 }
 
 func (h *Handler) Handle(ctx context.Context, b *tgbot.Bot, update *models.Update) {
@@ -30,14 +31,14 @@ func (h *Handler) Handle(ctx context.Context, b *tgbot.Bot, update *models.Updat
 		return
 	}
 
-	h.log.Info("Add call")
+	h.log.Info("add command received")
 
 	chatID := update.Message.Chat.ID
 	userID := update.Message.From.ID
 	username := update.Message.From.Username
 	message := update.Message.Text
 
-	user := model.User{
+	user := &model.User{
 		UserID:   userID,
 		ChatID:   chatID,
 		Username: username,
@@ -45,19 +46,16 @@ func (h *Handler) Handle(ctx context.Context, b *tgbot.Bot, update *models.Updat
 
 	taskNumber, ok := parseAddTaskNumber(message)
 	if !ok {
-		reply.Text(ctx, b, chatID, "Введите /add число")
+		reply.Text(ctx, b, chatID, "Введите команду в формате: /add 42")
 		return
 	}
 
-	task := model.Task{
-		TaskNumber: taskNumber,
-	}
-
-	err := h.creator.Add(ctx, &task, &user)
+	result, err := h.adder.Add(ctx, taskNumber, user)
 	if err != nil {
+		h.log.Error("failed to add task", "err", err, "userID", userID, "taskNumber", taskNumber)
 		reply.Text(ctx, b, chatID, taskErrorText(err))
 		return
 	}
 
-	reply.Text(ctx, b, chatID, "✅ Задача сохранена")
+	reply.HTML(ctx, b, chatID, buildAddSuccessMessage(result))
 }

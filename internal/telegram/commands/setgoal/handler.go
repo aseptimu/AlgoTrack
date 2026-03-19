@@ -2,6 +2,7 @@ package setgoal
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"strings"
 
@@ -43,7 +44,7 @@ func (h *Handler) Handle(ctx context.Context, b *tgbot.Bot, update *models.Updat
 	}
 
 	parts := strings.Fields(text)
-	if len(parts) != 2 {
+	if len(parts) < 2 || len(parts) > 3 {
 		reply.Text(ctx, b, chatID, messages.GoalUsage)
 		return
 	}
@@ -54,7 +55,17 @@ func (h *Handler) Handle(ctx context.Context, b *tgbot.Bot, update *models.Updat
 		return
 	}
 
-	if err := h.userManager.SetGoal(ctx, user.UserID, goal); err != nil {
+	var difficulty *string
+	if len(parts) == 3 {
+		value := strings.TrimSpace(parts[2])
+		difficulty = &value
+	}
+
+	if err := h.userManager.SetGoal(ctx, user.UserID, goal, difficulty); err != nil {
+		if errors.Is(err, service.ErrInvalidDifficulty) {
+			reply.Text(ctx, b, chatID, messages.InvalidGoalDifficulty)
+			return
+		}
 		h.logger.Error("failed to set goal from command", "err", err, "userID", user.UserID, "goal", goal)
 		reply.Text(ctx, b, chatID, messages.InternalError)
 		return
@@ -67,12 +78,12 @@ func (h *Handler) Handle(ctx context.Context, b *tgbot.Bot, update *models.Updat
 		return
 	}
 
-	welcomeText, err := h.userManager.BuildWelcomeMessage(ctx, updatedUser)
+	goalText, err := h.userManager.BuildGoalMessage(ctx, updatedUser)
 	if err != nil {
 		h.logger.Error("failed to build progress message after goal command", "err", err, "userID", user.UserID)
 		reply.Text(ctx, b, chatID, messages.InternalError)
 		return
 	}
 
-	reply.Text(ctx, b, chatID, welcomeText)
+	reply.HTML(ctx, b, chatID, goalText)
 }

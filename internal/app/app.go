@@ -37,9 +37,8 @@ func Run(ctx context.Context) error {
 	leetcodeClient := client.NewHTTPLeetCodeClient()
 
 	tgUserRepo := user2.NewTgUserRepo(database)
-	tgUserService := user.NewUserService(tgUserRepo, logger)
-
 	taskRepo := task2.NewTaskRepo(database)
+	tgUserService := user.NewUserService(tgUserRepo, taskRepo, logger)
 	taskService := task.NewTaskService(tgUserService, taskRepo, leetcodeClient, logger)
 
 	myBot, err := telegram.New(cfg.BotToken, logger)

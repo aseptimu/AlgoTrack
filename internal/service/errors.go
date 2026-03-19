@@ -7,6 +7,7 @@ import "errors"
 var ErrFailedUserCreate = errors.New("failed to create user")
 var ErrTgUserNotFound = errors.New("user not found")
 var ErrInvalidGoal = errors.New("invalid goal")
+var ErrInvalidDifficulty = errors.New("invalid difficulty")
 
 // Task
 

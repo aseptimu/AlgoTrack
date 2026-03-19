@@ -48,7 +48,7 @@ func (h *Handler) Handle(ctx context.Context, b *tgbot.Bot, update *models.Updat
 		return
 	}
 
-	if err := h.userManager.SetGoal(ctx, userID, goal); err != nil {
+	if err := h.userManager.SetGoal(ctx, userID, goal, nil); err != nil {
 		h.logger.Error("failed to set goal", "err", err, "userID", userID, "goal", goal)
 		reply.Text(ctx, b, chatID, "Internal error")
 		return
@@ -61,7 +61,7 @@ func (h *Handler) Handle(ctx context.Context, b *tgbot.Bot, update *models.Updat
 		return
 	}
 
-	text, err := h.userManager.BuildWelcomeMessage(ctx, user)
+	text, err := h.userManager.BuildGoalMessage(ctx, user)
 	if err != nil {
 		h.logger.Error("failed to build welcome after goal update", "err", err, "userID", userID)
 		reply.Text(ctx, b, chatID, "Internal error")
@@ -73,5 +73,5 @@ func (h *Handler) Handle(ctx context.Context, b *tgbot.Bot, update *models.Updat
 		Text:            "Goal saved",
 	})
 
-	reply.Text(ctx, b, chatID, text)
+	reply.HTML(ctx, b, chatID, text)
 }

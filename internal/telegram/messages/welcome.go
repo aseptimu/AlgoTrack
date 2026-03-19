@@ -14,21 +14,11 @@ What is your goal?
 
 %s`
 
-const WelcomeWithProgress = `
-Welcome back to AlgoTrack
-
-Progress: %d / %d
-Remaining: %d
-
-Keep going 🚀
-
-%s`
-
 const Commands = `Available commands:
 /start - show welcome message
 /help - show all commands
-/add <number> - save solved LeetCode problem
-/goal <number> - set or update your goal`
+/add &lt;number&gt; - save solved LeetCode problem
+/goal &lt;number&gt; [easy|medium|hard] - set or update your goal`
 
 const Help = `
 AlgoTrack commands
@@ -37,9 +27,40 @@ AlgoTrack commands
 
 const GoalUsage = `
 Use the command like this:
-/goal 300`
+/goal 300
+/goal 100 easy
+/goal 300 medium`
 
 const InvalidGoal = `
 Please provide a valid positive number.
 Example:
-/goal 300`
+/goal 300
+/goal 100 easy
+/goal 300 medium`
+
+const InvalidGoalDifficulty = `
+Use one of the supported difficulty levels: easy, medium, hard.
+Examples:
+/goal 100 easy
+/goal 300 medium`
+
+const GoalSavedNoProgress = `
+<b>Goal saved</b>.`
+
+const GoalSavedWithProgress = `
+<b>Goal saved</b>.
+
+<b>Current progress</b>:
+%s`
+
+func WelcomeWithProgress(progressLines string) string {
+	return `
+<b>Welcome back to AlgoTrack</b>
+
+<b>Goals</b>:
+` + progressLines + `
+
+Keep going 🚀
+
+%s`
+}

@@ -40,9 +40,18 @@ func (t *TgUserRepo) Get(ctx context.Context, userId int64) (*model.User, error)
 	user := &model.User{}
 
 	err := t.db.Pool.QueryRow(ctx,
-		"SELECT user_id, chat_id, username, created_at, goal_total FROM tg_user WHERE user_id=$1",
+		"SELECT user_id, chat_id, username, created_at, goal_total, goal_easy, goal_medium, goal_hard FROM tg_user WHERE user_id=$1",
 		userId,
-	).Scan(&user.UserID, &user.ChatID, &user.Username, &user.CreatedAt, &user.GoalTotal)
+	).Scan(
+		&user.UserID,
+		&user.ChatID,
+		&user.Username,
+		&user.CreatedAt,
+		&user.GoalTotal,
+		&user.GoalEasy,
+		&user.GoalMedium,
+		&user.GoalHard,
+	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, service.ErrTgUserNotFound
@@ -52,29 +61,21 @@ func (t *TgUserRepo) Get(ctx context.Context, userId int64) (*model.User, error)
 	return user, nil
 }
 
-func (t *TgUserRepo) UpdateGoal(ctx context.Context, userId int64, goal int64) error {
-	_, err := t.db.Pool.Exec(ctx,
-		`UPDATE tg_user
-		 SET goal_total = $2
-		 WHERE user_id = $1`,
-		userId,
-		goal,
-	)
-	return err
-}
+func (t *TgUserRepo) UpdateGoal(ctx context.Context, userId int64, goal int64, difficulty *string) error {
+	query := `UPDATE tg_user SET goal_total = $2 WHERE user_id = $1`
+	args := []any{userId, goal}
 
-func (t *TgUserRepo) CountSolvedTasks(ctx context.Context, userId int64) (int64, error) {
-	var count int64
-
-	err := t.db.Pool.QueryRow(ctx,
-		`SELECT COUNT(*)
-		 FROM algo_tasks
-		 WHERE user_id = $1`,
-		userId,
-	).Scan(&count)
-	if err != nil {
-		return 0, err
+	if difficulty != nil {
+		switch *difficulty {
+		case "Easy":
+			query = `UPDATE tg_user SET goal_easy = $2 WHERE user_id = $1`
+		case "Medium":
+			query = `UPDATE tg_user SET goal_medium = $2 WHERE user_id = $1`
+		case "Hard":
+			query = `UPDATE tg_user SET goal_hard = $2 WHERE user_id = $1`
+		}
 	}
 
-	return count, nil
+	_, err := t.db.Pool.Exec(ctx, query, args...)
+	return err
 }
