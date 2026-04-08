@@ -76,6 +76,18 @@ func (m *mockTaskRepo) GetDueReviews(_ context.Context, _ time.Time) ([]model.Du
 	return m.dueReviews, m.dueReviewsErr
 }
 
+func (m *mockTaskRepo) GetByUserID(_ context.Context, _ int64, _ *string, _, _ int64) ([]model.Task, int64, error) {
+	return nil, 0, nil
+}
+
+func (m *mockTaskRepo) GetStreak(_ context.Context, _ int64) (int64, error) {
+	return 0, nil
+}
+
+func (m *mockTaskRepo) GetPendingReviewCount(_ context.Context, _ int64) (int64, error) {
+	return 0, nil
+}
+
 // --- Tests ---
 
 func newTestService(users UserEnsurer, repo Repository, problems ProblemProvider) *TaskService {
@@ -261,7 +273,7 @@ func TestBuildGoalProgress(t *testing.T) {
 	t.Run("no goals set", func(t *testing.T) {
 		user := &model.User{UserID: 1}
 		stats := &model.TaskStats{Total: 5}
-		result := buildGoalProgress(user, stats)
+		result := model.BuildGoalProgress(user, stats)
 		if result != nil {
 			t.Error("expected nil when no goals set")
 		}
@@ -271,7 +283,7 @@ func TestBuildGoalProgress(t *testing.T) {
 		goal := int64(100)
 		user := &model.User{UserID: 1, GoalTotal: &goal}
 		stats := &model.TaskStats{Total: 30}
-		result := buildGoalProgress(user, stats)
+		result := model.BuildGoalProgress(user, stats)
 		if result == nil {
 			t.Fatal("expected non-nil progress")
 		}
@@ -287,7 +299,7 @@ func TestBuildGoalProgress(t *testing.T) {
 		goal := int64(10)
 		user := &model.User{UserID: 1, GoalTotal: &goal}
 		stats := &model.TaskStats{Total: 15}
-		result := buildGoalProgress(user, stats)
+		result := model.BuildGoalProgress(user, stats)
 		if result == nil {
 			t.Fatal("expected non-nil progress")
 		}
@@ -301,7 +313,7 @@ func TestBuildGoalProgress(t *testing.T) {
 		easy := int64(50)
 		user := &model.User{UserID: 1, GoalTotal: &total, GoalEasy: &easy}
 		stats := &model.TaskStats{Total: 10, Easy: 5}
-		result := buildGoalProgress(user, stats)
+		result := model.BuildGoalProgress(user, stats)
 		if result == nil {
 			t.Fatal("expected non-nil progress")
 		}

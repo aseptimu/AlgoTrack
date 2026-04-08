@@ -154,6 +154,117 @@ func (t *TaskRepo) GetStats(ctx context.Context, userID int64) (*model.TaskStats
 	return stats, nil
 }
 
+func (t *TaskRepo) GetByUserID(ctx context.Context, userID int64, difficulty *string, offset, limit int64) ([]model.Task, int64, error) {
+	// Count total matching tasks.
+	countQuery := `SELECT COUNT(*) FROM algo_tasks WHERE user_id = $1`
+	args := []any{userID}
+	argIdx := 2
+
+	if difficulty != nil && *difficulty != "" {
+		countQuery += fmt.Sprintf(` AND difficulty = $%d`, argIdx)
+		args = append(args, *difficulty)
+		argIdx++
+	}
+	_ = argIdx // suppress unused warning
+
+	var total int64
+	if err := t.db.Pool.QueryRow(ctx, countQuery, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	// Fetch page.
+	selectQuery := `
+		SELECT id, user_id, task_number, link, description, difficulty, review_count, last_reviewed_at, next_review_at
+		FROM algo_tasks
+		WHERE user_id = $1
+	`
+
+	selectArgs := []any{userID}
+	selectArgIdx := 2
+
+	if difficulty != nil && *difficulty != "" {
+		selectQuery += fmt.Sprintf(` AND difficulty = $%d`, selectArgIdx)
+		selectArgs = append(selectArgs, *difficulty)
+		selectArgIdx++
+	}
+
+	selectQuery += fmt.Sprintf(` ORDER BY last_reviewed_at DESC LIMIT $%d OFFSET $%d`, selectArgIdx, selectArgIdx+1)
+	selectArgs = append(selectArgs, limit, offset)
+
+	rows, err := t.db.Pool.Query(ctx, selectQuery, selectArgs...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	tasks := make([]model.Task, 0, limit)
+	for rows.Next() {
+		var task model.Task
+		if err := rows.Scan(
+			&task.ID,
+			&task.UserID,
+			&task.TaskNumber,
+			&task.Link,
+			&task.Title,
+			&task.Difficulty,
+			&task.ReviewCount,
+			&task.LastReviewedAt,
+			&task.NextReviewAt,
+		); err != nil {
+			return nil, 0, err
+		}
+		tasks = append(tasks, task)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
+
+	return tasks, total, nil
+}
+
+func (t *TaskRepo) GetStreak(ctx context.Context, userID int64) (int64, error) {
+	var streak int64
+	err := t.db.Pool.QueryRow(ctx, `
+		WITH daily AS (
+			SELECT DISTINCT (last_reviewed_at AT TIME ZONE 'Europe/Moscow')::date AS d
+			FROM algo_tasks
+			WHERE user_id = $1
+		),
+		numbered AS (
+			SELECT d, d - (ROW_NUMBER() OVER (ORDER BY d DESC))::int AS grp
+			FROM daily
+		)
+		SELECT COUNT(*)
+		FROM numbered
+		WHERE grp = (
+			SELECT grp FROM numbered
+			WHERE d >= (NOW() AT TIME ZONE 'Europe/Moscow')::date - INTERVAL '1 day'
+			ORDER BY d DESC
+			LIMIT 1
+		)
+	`, userID).Scan(&streak)
+	if err != nil {
+		return 0, err
+	}
+
+	return streak, nil
+}
+
+func (t *TaskRepo) GetPendingReviewCount(ctx context.Context, userID int64) (int64, error) {
+	var count int64
+	err := t.db.Pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM algo_tasks
+		WHERE user_id = $1 AND next_review_at <= NOW()
+	`, userID).Scan(&count)
+	if err != nil {
+		return 0, err
+	}
+
+	return count, nil
+}
+
 func (t *TaskRepo) GetDueReviews(ctx context.Context, nowTime time.Time) ([]model.DueReviewBatch, error) {
 	rows, err := t.db.Pool.Query(ctx, `
 		SELECT

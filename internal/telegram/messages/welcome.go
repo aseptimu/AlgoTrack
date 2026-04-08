@@ -19,7 +19,9 @@ const Commands = `Available commands:
 /help - show all commands
 /add &lt;number&gt; - save solved LeetCode problem or mark repetition
 /goal &lt;number&gt; [easy|medium|hard] - set or update your goal
-/link &lt;leetcode_username&gt; - link your LeetCode account for auto-tracking`
+/link &lt;leetcode_username&gt; - link your LeetCode account for auto-tracking
+/list [easy|medium|hard] - view solved problems
+/stats - progress dashboard`
 
 const Help = `
 AlgoTrack commands
