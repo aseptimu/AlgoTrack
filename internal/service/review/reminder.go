@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/aseptimu/AlgoTrack/internal/model"
+	"github.com/aseptimu/AlgoTrack/internal/timezone"
 	tgbot "github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
 )
@@ -25,10 +26,7 @@ type ReminderService struct {
 }
 
 func NewReminderService(repo DueReviewProvider, bot *tgbot.Bot, logger *slog.Logger) *ReminderService {
-	location, err := time.LoadLocation("Europe/Moscow")
-	if err != nil {
-		location = time.FixedZone("MSK", 3*60*60)
-	}
+	location := timezone.MoscowLocation
 
 	if logger == nil {
 		logger = slog.Default()

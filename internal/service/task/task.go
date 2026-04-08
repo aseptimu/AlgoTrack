@@ -8,6 +8,7 @@ import (
 
 	"github.com/aseptimu/AlgoTrack/internal/model"
 	"github.com/aseptimu/AlgoTrack/internal/service"
+	"github.com/aseptimu/AlgoTrack/internal/timezone"
 )
 
 type ProblemProvider interface {
@@ -111,13 +112,13 @@ func (t *TaskService) Add(ctx context.Context, taskNumber int64, incomingUser *m
 	return &model.AddTaskResult{
 		Task:         *storedTask,
 		Stats:        *stats,
-		GoalProgress: buildGoalProgress(user, stats),
+		GoalProgress: model.BuildGoalProgress(user, stats),
 		IsReview:     isReview,
 	}, nil
 }
 
 func nextReviewAt(reviewCount int64, from time.Time) *time.Time {
-	location := moscowLocation()
+	location := timezone.MoscowLocation
 	localTime := from.In(location)
 	intervalDays := reviewIntervals[len(reviewIntervals)-1]
 	if reviewCount-1 < int64(len(reviewIntervals)) {
@@ -128,45 +129,4 @@ func nextReviewAt(reviewCount int64, from time.Time) *time.Time {
 	scheduled := time.Date(nextDate.Year(), nextDate.Month(), nextDate.Day(), 9, 0, 0, 0, location)
 	utc := scheduled.UTC()
 	return &utc
-}
-
-func moscowLocation() *time.Location {
-	location, err := time.LoadLocation("Europe/Moscow")
-	if err != nil {
-		return time.FixedZone("MSK", 3*60*60)
-	}
-
-	return location
-}
-
-func buildGoalProgress(user *model.User, stats *model.TaskStats) *model.UserProgress {
-	items := make([]model.GoalProgress, 0, 4)
-	appendGoal := func(label string, goal *int64, solved int64) {
-		if goal == nil || *goal <= 0 {
-			return
-		}
-
-		remaining := *goal - solved
-		if remaining < 0 {
-			remaining = 0
-		}
-
-		items = append(items, model.GoalProgress{
-			Label:     label,
-			Solved:    solved,
-			Goal:      *goal,
-			Remaining: remaining,
-		})
-	}
-
-	appendGoal("Total", user.GoalTotal, stats.Total)
-	appendGoal("Easy", user.GoalEasy, stats.Easy)
-	appendGoal("Medium", user.GoalMedium, stats.Medium)
-	appendGoal("Hard", user.GoalHard, stats.Hard)
-
-	if len(items) == 0 {
-		return nil
-	}
-
-	return &model.UserProgress{Items: items}
 }

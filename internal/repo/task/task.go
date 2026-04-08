@@ -3,6 +3,7 @@ package task
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/aseptimu/AlgoTrack/internal/db"
@@ -56,7 +57,7 @@ func (t *TaskRepo) Create(ctx context.Context, task *model.Task, userID int64) (
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, service.ErrTaskAlreadyExists
 		}
-		return nil, err
+		return nil, fmt.Errorf("task.Create: %w", err)
 	}
 
 	return &storedTask, nil
@@ -84,7 +85,7 @@ func (t *TaskRepo) GetByTaskNumber(ctx context.Context, userID, taskNumber int64
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, service.ErrTaskNotFound
 		}
-		return nil, err
+		return nil, fmt.Errorf("task.GetByTaskNumber: %w", err)
 	}
 
 	return task, nil
@@ -123,7 +124,7 @@ func (t *TaskRepo) Review(ctx context.Context, task *model.Task, userID int64) (
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, service.ErrTaskNotFound
 		}
-		return nil, err
+		return nil, fmt.Errorf("task.Review: %w", err)
 	}
 
 	return &storedTask, nil
@@ -147,7 +148,7 @@ func (t *TaskRepo) GetStats(ctx context.Context, userID int64) (*model.TaskStats
 		&stats.Hard,
 	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("task.GetStats: %w", err)
 	}
 
 	return stats, nil
@@ -171,7 +172,7 @@ func (t *TaskRepo) GetDueReviews(ctx context.Context, nowTime time.Time) ([]mode
 		ORDER BY u.user_id, t.next_review_at, t.task_number
 	`, nowTime)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("task.GetDueReviews: %w", err)
 	}
 	defer rows.Close()
 
@@ -214,7 +215,7 @@ func (t *TaskRepo) GetDueReviews(ctx context.Context, nowTime time.Time) ([]mode
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("task.GetDueReviews: %w", err)
 	}
 
 	return batches, nil

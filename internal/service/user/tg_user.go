@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/aseptimu/AlgoTrack/internal/model"
-	"github.com/aseptimu/AlgoTrack/internal/service"
-	"github.com/aseptimu/AlgoTrack/internal/telegram/messages"
 	"log/slog"
 	"strings"
+
+	"github.com/aseptimu/AlgoTrack/internal/model"
+	"github.com/aseptimu/AlgoTrack/internal/service"
+	"github.com/aseptimu/AlgoTrack/internal/telegram/format"
+	"github.com/aseptimu/AlgoTrack/internal/telegram/messages"
 )
 
 type TgUserRepository interface {
@@ -83,7 +85,7 @@ func (t *TgUserService) BuildWelcomeMessage(ctx context.Context, user *model.Use
 	}
 
 	return fmt.Sprintf(
-		messages.WelcomeWithProgress(formatGoalProgress(progress.Items)),
+		messages.WelcomeWithProgress(format.GoalLinesEN(progress.Items)),
 		messages.Commands,
 	), nil
 }
@@ -98,7 +100,7 @@ func (t *TgUserService) BuildGoalMessage(ctx context.Context, user *model.User) 
 		return messages.GoalSavedNoProgress, nil
 	}
 
-	return fmt.Sprintf(messages.GoalSavedWithProgress, formatGoalProgress(progress.Items)), nil
+	return fmt.Sprintf(messages.GoalSavedWithProgress, format.GoalLinesEN(progress.Items)), nil
 }
 
 func (t *TgUserService) EnsureExistsAndGet(ctx context.Context, incomingUser *model.User) (*model.User, error) {
@@ -139,33 +141,7 @@ func (t *TgUserService) GetProgress(ctx context.Context, user *model.User) (*mod
 		return nil, err
 	}
 
-	items := make([]model.GoalProgress, 0, 4)
-	appendGoal := func(label string, goal *int64, solved int64) {
-		if goal == nil || *goal <= 0 {
-			return
-		}
-
-		remaining := *goal - solved
-		if remaining < 0 {
-			remaining = 0
-		}
-
-		items = append(items, model.GoalProgress{
-			Label:     label,
-			Solved:    solved,
-			Goal:      *goal,
-			Remaining: remaining,
-		})
-	}
-
-	appendGoal("Total", user.GoalTotal, stats.Total)
-	appendGoal("Easy", user.GoalEasy, stats.Easy)
-	appendGoal("Medium", user.GoalMedium, stats.Medium)
-	appendGoal("Hard", user.GoalHard, stats.Hard)
-
-	return &model.UserProgress{
-		Items: items,
-	}, nil
+	return model.BuildGoalProgress(user, stats), nil
 }
 
 func hasAnyGoal(user *model.User) bool {
@@ -177,30 +153,6 @@ func hasAnyGoal(user *model.User) bool {
 	}
 
 	return false
-}
-
-func formatGoalProgress(items []model.GoalProgress) string {
-	lines := make([]string, 0, len(items))
-	for _, item := range items {
-		lines = append(lines, fmt.Sprintf("%s <b>%d / %d</b> <i>(remaining %d)</i>", goalBadge(item.Label), item.Solved, item.Goal, item.Remaining))
-	}
-
-	return strings.Join(lines, "\n")
-}
-
-func goalBadge(label string) string {
-	switch label {
-	case "Total":
-		return "🎯 <b>Total</b>"
-	case "Easy":
-		return "🟢 <b>Easy</b>"
-	case "Medium":
-		return "🟠 <b>Medium</b>"
-	case "Hard":
-		return "🔴 <b>Hard</b>"
-	default:
-		return "<b>" + label + "</b>"
-	}
 }
 
 func (t *TgUserService) CreateUser(ctx context.Context, user *model.User) (*int64, error) {

@@ -16,8 +16,8 @@ type Handler struct {
 	logger      *slog.Logger
 }
 
-func New(userManger service.UserManager, logger *slog.Logger) *Handler {
-	return &Handler{userManager: userManger, logger: logger}
+func New(userManager service.UserManager, logger *slog.Logger) *Handler {
+	return &Handler{userManager: userManager, logger: logger}
 }
 
 func (h *Handler) Handle(ctx context.Context, b *tgbot.Bot, update *models.Update) {
