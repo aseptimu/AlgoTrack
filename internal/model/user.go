@@ -23,3 +23,36 @@ type GoalProgress struct {
 type UserProgress struct {
 	Items []GoalProgress
 }
+
+// BuildGoalProgress constructs goal progress items from a user's goals and task stats.
+func BuildGoalProgress(user *User, stats *TaskStats) *UserProgress {
+	items := make([]GoalProgress, 0, 4)
+	appendGoal := func(label string, goal *int64, solved int64) {
+		if goal == nil || *goal <= 0 {
+			return
+		}
+
+		remaining := *goal - solved
+		if remaining < 0 {
+			remaining = 0
+		}
+
+		items = append(items, GoalProgress{
+			Label:     label,
+			Solved:    solved,
+			Goal:      *goal,
+			Remaining: remaining,
+		})
+	}
+
+	appendGoal("Total", user.GoalTotal, stats.Total)
+	appendGoal("Easy", user.GoalEasy, stats.Easy)
+	appendGoal("Medium", user.GoalMedium, stats.Medium)
+	appendGoal("Hard", user.GoalHard, stats.Hard)
+
+	if len(items) == 0 {
+		return nil
+	}
+
+	return &UserProgress{Items: items}
+}

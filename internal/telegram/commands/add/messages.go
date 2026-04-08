@@ -3,11 +3,13 @@ package add
 import (
 	"errors"
 	"fmt"
+	"html"
+	"time"
+
 	"github.com/aseptimu/AlgoTrack/internal/model"
 	"github.com/aseptimu/AlgoTrack/internal/service"
-	"html"
-	"strings"
-	"time"
+	"github.com/aseptimu/AlgoTrack/internal/telegram/format"
+	"github.com/aseptimu/AlgoTrack/internal/timezone"
 )
 
 func taskErrorText(err error) string {
@@ -36,7 +38,7 @@ func buildAddSuccessMessage(result *model.AddTaskResult) string {
 
 	goalBlock := ""
 	if result.GoalProgress != nil && len(result.GoalProgress.Items) > 0 {
-		goalBlock = "\n\n<b>Цели</b>\n" + formatGoalLines(result.GoalProgress.Items)
+		goalBlock = "\n\n<b>Цели</b>\n" + format.GoalLines(result.GoalProgress.Items)
 	}
 
 	statusTitle := "✅ <b>Задача сохранена</b>"
@@ -67,31 +69,6 @@ func buildAddSuccessMessage(result *model.AddTaskResult) string {
 	)
 }
 
-func formatGoalLines(items []model.GoalProgress) string {
-	lines := make([]string, 0, len(items))
-	for _, item := range items {
-		lines = append(lines, fmt.Sprintf("%s <b>%d / %d</b> <i>(осталось %d)</i>", goalBadge(item.Label), item.Solved, item.Goal, item.Remaining))
-	}
-
-	return strings.Join(lines, "\n")
-}
-
-func goalBadge(label string) string {
-	switch label {
-	case "Total":
-		return "🎯 <b>Total</b>"
-	case "Easy":
-		return "🟢 <b>Easy</b>"
-	case "Medium":
-		return "🟠 <b>Medium</b>"
-	case "Hard":
-		return "🔴 <b>Hard</b>"
-	default:
-		return "<b>" + label + "</b>"
-	}
-}
-
 func formatMoscowTime(value time.Time) string {
-	location := time.FixedZone("MSK", 3*60*60)
-	return value.In(location).Format("02.01.2006 15:04 MSK")
+	return value.In(timezone.MoscowLocation).Format("02.01.2006 15:04 MSK")
 }

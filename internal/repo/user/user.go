@@ -3,6 +3,8 @@ package user
 import (
 	"context"
 	"errors"
+	"fmt"
+
 	"github.com/aseptimu/AlgoTrack/internal/db"
 	"github.com/aseptimu/AlgoTrack/internal/model"
 	"github.com/aseptimu/AlgoTrack/internal/service"
@@ -22,7 +24,10 @@ func (t *TgUserRepo) Create(ctx context.Context, user *model.User) (*int64, erro
 
 	err := t.db.Pool.
 		QueryRow(ctx,
-			"INSERT INTO tg_user (user_id, chat_id, username, created_at) VALUES ($1, $2, $3, NOW()) RETURNING user_id",
+			`INSERT INTO tg_user (user_id, chat_id, username, created_at)
+			 VALUES ($1, $2, $3, NOW())
+			 ON CONFLICT (user_id) DO UPDATE SET chat_id = EXCLUDED.chat_id
+			 RETURNING user_id`,
 			user.UserID,
 			user.ChatID,
 			user.Username,
@@ -30,7 +35,7 @@ func (t *TgUserRepo) Create(ctx context.Context, user *model.User) (*int64, erro
 		Scan(&returnedUserID)
 
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("user.Create: %w", err)
 	}
 
 	return &returnedUserID, nil
@@ -56,7 +61,7 @@ func (t *TgUserRepo) Get(ctx context.Context, userId int64) (*model.User, error)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, service.ErrTgUserNotFound
 		}
-		return nil, err
+		return nil, fmt.Errorf("user.Get: %w", err)
 	}
 	return user, nil
 }
@@ -77,5 +82,8 @@ func (t *TgUserRepo) UpdateGoal(ctx context.Context, userId int64, goal int64, d
 	}
 
 	_, err := t.db.Pool.Exec(ctx, query, args...)
-	return err
+	if err != nil {
+		return fmt.Errorf("user.UpdateGoal: %w", err)
+	}
+	return nil
 }

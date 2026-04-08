@@ -3,8 +3,8 @@ package config
 import "github.com/caarlos0/env/v11"
 
 type Config struct {
-	BotToken string `env:"TELEGRAM_TOKEN"`
-	DBURL    string `env:"DATABASE_URL"`
+	BotToken string `env:"TELEGRAM_TOKEN,required"`
+	DBURL    string `env:"DATABASE_URL,required"`
 }
 
 func NewConfig() (*Config, error) {
