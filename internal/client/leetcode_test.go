@@ -7,7 +7,7 @@ import (
 )
 
 func TestHTTPLeetCodeClient_GetProblemByNumber(t *testing.T) {
-	client := NewHTTPLeetCodeClient()
+	client := NewHTTPLeetCodeClient(nil)
 	problem, err := client.GetProblemByNumber(context.Background(), 2)
 	fmt.Println(err)
 	fmt.Println(problem)

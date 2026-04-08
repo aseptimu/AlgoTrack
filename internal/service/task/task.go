@@ -3,9 +3,11 @@ package task
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 
+	"github.com/aseptimu/AlgoTrack/internal/client"
 	"github.com/aseptimu/AlgoTrack/internal/model"
 	"github.com/aseptimu/AlgoTrack/internal/service"
 	"github.com/aseptimu/AlgoTrack/internal/timezone"
@@ -64,8 +66,20 @@ func (t *TaskService) Add(ctx context.Context, taskNumber int64, incomingUser *m
 
 	problem, err := t.problems.GetProblemByNumber(ctx, taskNumber)
 	if err != nil {
-		t.logger.Error("failed to get problem by number", "err", err, "taskNumber", taskNumber)
-		return nil, err
+		// Graceful degradation: if LeetCode is unavailable, continue with minimal info.
+		if errors.Is(err, client.ErrLeetCodeUnavailable) || errors.Is(err, context.DeadlineExceeded) {
+			t.logger.Warn("leetcode unavailable, continuing without problem details", "err", err, "taskNumber", taskNumber)
+			link := fmt.Sprintf("https://leetcode.com/problems/unknown-%d/", taskNumber)
+			problem = &model.ProblemInfo{
+				Number:   int(taskNumber),
+				Title:    fmt.Sprintf("Problem %d", taskNumber),
+				Link:     link,
+				Platform: "leetcode",
+			}
+		} else {
+			t.logger.Error("failed to get problem by number", "err", err, "taskNumber", taskNumber)
+			return nil, err
+		}
 	}
 
 	reviewedAt := time.Now().UTC()

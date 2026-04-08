@@ -45,12 +45,13 @@ func (t *TgUserRepo) Get(ctx context.Context, userId int64) (*model.User, error)
 	user := &model.User{}
 
 	err := t.db.Pool.QueryRow(ctx,
-		"SELECT user_id, chat_id, username, created_at, goal_total, goal_easy, goal_medium, goal_hard FROM tg_user WHERE user_id=$1",
+		"SELECT user_id, chat_id, username, leetcode_username, created_at, goal_total, goal_easy, goal_medium, goal_hard FROM tg_user WHERE user_id=$1",
 		userId,
 	).Scan(
 		&user.UserID,
 		&user.ChatID,
 		&user.Username,
+		&user.LeetCodeUsername,
 		&user.CreatedAt,
 		&user.GoalTotal,
 		&user.GoalEasy,
@@ -86,4 +87,32 @@ func (t *TgUserRepo) UpdateGoal(ctx context.Context, userId int64, goal int64, d
 		return fmt.Errorf("user.UpdateGoal: %w", err)
 	}
 	return nil
+}
+
+func (t *TgUserRepo) UpdateLeetCodeUsername(ctx context.Context, userID int64, leetcodeUsername string) error {
+	_, err := t.db.Pool.Exec(ctx,
+		`UPDATE tg_user SET leetcode_username = $2 WHERE user_id = $1`,
+		userID, leetcodeUsername,
+	)
+	return err
+}
+
+func (t *TgUserRepo) GetUsersWithLeetCode(ctx context.Context) ([]model.User, error) {
+	rows, err := t.db.Pool.Query(ctx,
+		`SELECT user_id, chat_id, username, leetcode_username FROM tg_user WHERE leetcode_username IS NOT NULL AND leetcode_username != ''`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var users []model.User
+	for rows.Next() {
+		var u model.User
+		if err := rows.Scan(&u.UserID, &u.ChatID, &u.Username, &u.LeetCodeUsername); err != nil {
+			return nil, err
+		}
+		users = append(users, u)
+	}
+	return users, rows.Err()
 }
