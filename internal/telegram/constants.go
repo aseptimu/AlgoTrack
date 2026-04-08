@@ -6,4 +6,6 @@ const (
 	Goal  = "/goal"
 	Help  = "/help"
 	Link  = "/link"
+	List  = "/list"
+	Stats = "/stats"
 )

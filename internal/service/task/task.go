@@ -27,6 +27,9 @@ type Repository interface {
 	Review(ctx context.Context, task *model.Task, userID int64) (*model.Task, error)
 	GetStats(ctx context.Context, userID int64) (*model.TaskStats, error)
 	GetDueReviews(ctx context.Context, nowTime time.Time) ([]model.DueReviewBatch, error)
+	GetByUserID(ctx context.Context, userID int64, difficulty *string, offset, limit int64) ([]model.Task, int64, error)
+	GetStreak(ctx context.Context, userID int64) (int64, error)
+	GetPendingReviewCount(ctx context.Context, userID int64) (int64, error)
 }
 
 type TaskService struct {
@@ -128,6 +131,43 @@ func (t *TaskService) Add(ctx context.Context, taskNumber int64, incomingUser *m
 		Stats:        *stats,
 		GoalProgress: model.BuildGoalProgress(user, stats),
 		IsReview:     isReview,
+	}, nil
+}
+
+func (t *TaskService) List(ctx context.Context, userID int64, difficulty *string, offset, limit int64) ([]model.Task, int64, error) {
+	tasks, total, err := t.repo.GetByUserID(ctx, userID, difficulty, offset, limit)
+	if err != nil {
+		t.logger.Error("failed to list tasks", "err", err, "userID", userID)
+		return nil, 0, err
+	}
+
+	return tasks, total, nil
+}
+
+func (t *TaskService) GetUserStats(ctx context.Context, userID int64, user *model.User) (*model.UserStatsResult, error) {
+	stats, err := t.repo.GetStats(ctx, userID)
+	if err != nil {
+		t.logger.Error("failed to get task stats", "err", err, "userID", userID)
+		return nil, err
+	}
+
+	streak, err := t.repo.GetStreak(ctx, userID)
+	if err != nil {
+		t.logger.Error("failed to get streak", "err", err, "userID", userID)
+		return nil, err
+	}
+
+	pendingReviews, err := t.repo.GetPendingReviewCount(ctx, userID)
+	if err != nil {
+		t.logger.Error("failed to get pending review count", "err", err, "userID", userID)
+		return nil, err
+	}
+
+	return &model.UserStatsResult{
+		Stats:          *stats,
+		Streak:         streak,
+		PendingReviews: pendingReviews,
+		GoalProgress:   model.BuildGoalProgress(user, stats),
 	}, nil
 }
 

@@ -35,6 +35,14 @@ func (m *mockTgUserRepo) UpdateGoal(_ context.Context, _ int64, _ int64, _ *stri
 	return m.updateErr
 }
 
+func (m *mockTgUserRepo) UpdateLeetCodeUsername(_ context.Context, _ int64, _ string) error {
+	return nil
+}
+
+func (m *mockTgUserRepo) GetUsersWithLeetCode(_ context.Context) ([]model.User, error) {
+	return nil, nil
+}
+
 type mockProgressProvider struct {
 	stats *model.TaskStats
 	err   error
@@ -126,6 +134,14 @@ func (r *sequentialGetRepo) Get(_ context.Context, _ int64) (*model.User, error)
 
 func (r *sequentialGetRepo) UpdateGoal(_ context.Context, _ int64, _ int64, _ *string) error {
 	return r.updateErr
+}
+
+func (r *sequentialGetRepo) UpdateLeetCodeUsername(_ context.Context, _ int64, _ string) error {
+	return nil
+}
+
+func (r *sequentialGetRepo) GetUsersWithLeetCode(_ context.Context) ([]model.User, error) {
+	return nil, nil
 }
 
 func TestSetGoal_Valid(t *testing.T) {
@@ -291,35 +307,6 @@ func TestHasAnyGoal(t *testing.T) {
 	})
 }
 
-func TestFormatGoalProgress(t *testing.T) {
-	items := []model.GoalProgress{
-		{Label: "Total", Solved: 5, Goal: 100, Remaining: 95},
-		{Label: "Easy", Solved: 3, Goal: 50, Remaining: 47},
-	}
-	result := formatGoalProgress(items)
-	if result == "" {
-		t.Error("expected non-empty formatted progress")
-	}
-}
-
-func TestGoalBadge(t *testing.T) {
-	tests := []struct {
-		label    string
-		contains string
-	}{
-		{"Total", "Total"},
-		{"Easy", "Easy"},
-		{"Medium", "Medium"},
-		{"Hard", "Hard"},
-		{"Custom", "Custom"},
-	}
-
-	for _, tt := range tests {
-		result := goalBadge(tt.label)
-		if result == "" {
-			t.Errorf("goalBadge(%q) returned empty", tt.label)
-		}
-	}
-}
+// formatGoalProgress and goalBadge moved to internal/telegram/format package
 
 func strPtr(s string) *string { return &s }

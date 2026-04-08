@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+
 	"github.com/aseptimu/AlgoTrack/internal/client"
 	"github.com/aseptimu/AlgoTrack/internal/config"
 	"github.com/aseptimu/AlgoTrack/internal/db"
@@ -16,8 +17,10 @@ import (
 	"github.com/aseptimu/AlgoTrack/internal/telegram/commands/goal"
 	helpcmd "github.com/aseptimu/AlgoTrack/internal/telegram/commands/help"
 	"github.com/aseptimu/AlgoTrack/internal/telegram/commands/link"
+	"github.com/aseptimu/AlgoTrack/internal/telegram/commands/list"
 	"github.com/aseptimu/AlgoTrack/internal/telegram/commands/setgoal"
 	"github.com/aseptimu/AlgoTrack/internal/telegram/commands/start"
+	"github.com/aseptimu/AlgoTrack/internal/telegram/commands/stats"
 	"github.com/aseptimu/AlgoTrack/internal/telegram/messages/fallback"
 	"github.com/aseptimu/AlgoTrack/internal/telegram/router"
 )
@@ -36,6 +39,7 @@ func Run(ctx context.Context) error {
 		logger.Error("Failed to connect to DB", "Error", err.Error())
 		return err
 	}
+	defer database.Pool.Close()
 
 	leetcodeClient := client.NewHTTPLeetCodeClient(logger)
 
@@ -57,6 +61,8 @@ func Run(ctx context.Context) error {
 	goalCallbackHandler := goal.New(tgUserService, logger)
 	setGoalHandler := setgoal.New(tgUserService, logger)
 	linkHandler := link.New(tgUserService, logger)
+	listHandler := list.New(taskService, tgUserService, logger)
+	statsHandler := stats.New(taskService, tgUserService, logger)
 	reminderService := review.NewReminderService(taskRepo, myBot.Raw(), logger)
 	submissionPoller := submission.NewPoller(leetcodeClient, tgUserService, taskService, myBot.Raw(), logger)
 
@@ -68,10 +74,13 @@ func Run(ctx context.Context) error {
 		GoalCallback: goalCallbackHandler,
 		SetGoal:      setGoalHandler,
 		Link:         linkHandler,
+		List:         listHandler,
+		Stats:        statsHandler,
 	})
 
 	go reminderService.Start(ctx)
 	go submissionPoller.Start(ctx)
 	myBot.Run(ctx)
+	logger.Info("bot shutting down")
 	return nil
 }

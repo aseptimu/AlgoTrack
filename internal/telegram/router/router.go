@@ -6,8 +6,10 @@ import (
 	"github.com/aseptimu/AlgoTrack/internal/telegram/commands/goal"
 	helpcmd "github.com/aseptimu/AlgoTrack/internal/telegram/commands/help"
 	"github.com/aseptimu/AlgoTrack/internal/telegram/commands/link"
+	"github.com/aseptimu/AlgoTrack/internal/telegram/commands/list"
 	"github.com/aseptimu/AlgoTrack/internal/telegram/commands/setgoal"
 	"github.com/aseptimu/AlgoTrack/internal/telegram/commands/start"
+	"github.com/aseptimu/AlgoTrack/internal/telegram/commands/stats"
 	"github.com/aseptimu/AlgoTrack/internal/telegram/messages/fallback"
 	tgbot "github.com/go-telegram/bot"
 )
@@ -20,6 +22,8 @@ type Handlers struct {
 	GoalCallback *goal.Handler
 	SetGoal      *setgoal.Handler
 	Link         *link.Handler
+	List         *list.Handler
+	Stats        *stats.Handler
 }
 
 func Register(b *tgbot.Bot, h Handlers) {
@@ -28,8 +32,11 @@ func Register(b *tgbot.Bot, h Handlers) {
 	b.RegisterHandler(tgbot.HandlerTypeMessageText, telegram.Help, tgbot.MatchTypeExact, h.Help.Handle)
 	b.RegisterHandler(tgbot.HandlerTypeMessageText, telegram.Goal, tgbot.MatchTypePrefix, h.SetGoal.Handle)
 	b.RegisterHandler(tgbot.HandlerTypeMessageText, telegram.Link, tgbot.MatchTypePrefix, h.Link.Handle)
+	b.RegisterHandler(tgbot.HandlerTypeMessageText, telegram.List, tgbot.MatchTypePrefix, h.List.Handle)
+	b.RegisterHandler(tgbot.HandlerTypeMessageText, telegram.Stats, tgbot.MatchTypeExact, h.Stats.Handle)
 
 	b.RegisterHandler(tgbot.HandlerTypeMessageText, "", tgbot.MatchTypePrefix, h.Text.Handle)
 
 	b.RegisterHandler(tgbot.HandlerTypeCallbackQueryData, "goal_", tgbot.MatchTypePrefix, h.GoalCallback.Handle)
+	b.RegisterHandler(tgbot.HandlerTypeCallbackQueryData, "list_", tgbot.MatchTypePrefix, h.List.HandleCallback)
 }

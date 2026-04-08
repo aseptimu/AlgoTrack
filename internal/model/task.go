@@ -28,6 +28,13 @@ type AddTaskResult struct {
 	IsReview     bool
 }
 
+type UserStatsResult struct {
+	Stats          TaskStats
+	Streak         int64
+	PendingReviews int64
+	GoalProgress   *UserProgress
+}
+
 type DueReviewTask struct {
 	TaskNumber     int64
 	Title          string
