@@ -8,12 +8,14 @@ import (
 	task2 "github.com/aseptimu/AlgoTrack/internal/repo/task"
 	user2 "github.com/aseptimu/AlgoTrack/internal/repo/user"
 	"github.com/aseptimu/AlgoTrack/internal/service/review"
+	"github.com/aseptimu/AlgoTrack/internal/service/submission"
 	"github.com/aseptimu/AlgoTrack/internal/service/task"
 	"github.com/aseptimu/AlgoTrack/internal/service/user"
 	"github.com/aseptimu/AlgoTrack/internal/telegram"
 	"github.com/aseptimu/AlgoTrack/internal/telegram/commands/add"
 	"github.com/aseptimu/AlgoTrack/internal/telegram/commands/goal"
 	helpcmd "github.com/aseptimu/AlgoTrack/internal/telegram/commands/help"
+	"github.com/aseptimu/AlgoTrack/internal/telegram/commands/link"
 	"github.com/aseptimu/AlgoTrack/internal/telegram/commands/setgoal"
 	"github.com/aseptimu/AlgoTrack/internal/telegram/commands/start"
 	"github.com/aseptimu/AlgoTrack/internal/telegram/messages/fallback"
@@ -35,7 +37,7 @@ func Run(ctx context.Context) error {
 		return err
 	}
 
-	leetcodeClient := client.NewHTTPLeetCodeClient()
+	leetcodeClient := client.NewHTTPLeetCodeClient(logger)
 
 	tgUserRepo := user2.NewTgUserRepo(database)
 	taskRepo := task2.NewTaskRepo(database)
@@ -54,7 +56,9 @@ func Run(ctx context.Context) error {
 	textHandler := fallback.New(logger)
 	goalCallbackHandler := goal.New(tgUserService, logger)
 	setGoalHandler := setgoal.New(tgUserService, logger)
+	linkHandler := link.New(tgUserService, logger)
 	reminderService := review.NewReminderService(taskRepo, myBot.Raw(), logger)
+	submissionPoller := submission.NewPoller(leetcodeClient, tgUserService, taskService, myBot.Raw(), logger)
 
 	router.Register(myBot.Raw(), router.Handlers{
 		Start:        startHandler,
@@ -63,9 +67,11 @@ func Run(ctx context.Context) error {
 		Text:         textHandler,
 		GoalCallback: goalCallbackHandler,
 		SetGoal:      setGoalHandler,
+		Link:         linkHandler,
 	})
 
 	go reminderService.Start(ctx)
+	go submissionPoller.Start(ctx)
 	myBot.Run(ctx)
 	return nil
 }

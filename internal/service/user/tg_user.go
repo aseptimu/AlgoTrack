@@ -15,6 +15,8 @@ type TgUserRepository interface {
 	Create(ctx context.Context, user *model.User) (*int64, error)
 	Get(ctx context.Context, userId int64) (*model.User, error)
 	UpdateGoal(ctx context.Context, userId int64, goal int64, difficulty *string) error
+	UpdateLeetCodeUsername(ctx context.Context, userID int64, leetcodeUsername string) error
+	GetUsersWithLeetCode(ctx context.Context) ([]model.User, error)
 }
 
 type ProgressProvider interface {
@@ -209,4 +211,15 @@ func (t *TgUserService) CreateUser(ctx context.Context, user *model.User) (*int6
 
 func (t *TgUserService) GetUser(ctx context.Context, userId int64) (*model.User, error) {
 	return t.repo.Get(ctx, userId)
+}
+
+func (t *TgUserService) LinkLeetCode(ctx context.Context, userID int64, leetcodeUsername string) error {
+	if leetcodeUsername == "" {
+		return service.ErrInvalidLeetCodeUsername
+	}
+	return t.repo.UpdateLeetCodeUsername(ctx, userID, leetcodeUsername)
+}
+
+func (t *TgUserService) GetUsersWithLeetCode(ctx context.Context) ([]model.User, error) {
+	return t.repo.GetUsersWithLeetCode(ctx)
 }

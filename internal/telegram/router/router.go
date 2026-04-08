@@ -5,6 +5,7 @@ import (
 	"github.com/aseptimu/AlgoTrack/internal/telegram/commands/add"
 	"github.com/aseptimu/AlgoTrack/internal/telegram/commands/goal"
 	helpcmd "github.com/aseptimu/AlgoTrack/internal/telegram/commands/help"
+	"github.com/aseptimu/AlgoTrack/internal/telegram/commands/link"
 	"github.com/aseptimu/AlgoTrack/internal/telegram/commands/setgoal"
 	"github.com/aseptimu/AlgoTrack/internal/telegram/commands/start"
 	"github.com/aseptimu/AlgoTrack/internal/telegram/messages/fallback"
@@ -18,6 +19,7 @@ type Handlers struct {
 	Text         *fallback.Handler
 	GoalCallback *goal.Handler
 	SetGoal      *setgoal.Handler
+	Link         *link.Handler
 }
 
 func Register(b *tgbot.Bot, h Handlers) {
@@ -25,6 +27,7 @@ func Register(b *tgbot.Bot, h Handlers) {
 	b.RegisterHandler(tgbot.HandlerTypeMessageText, telegram.Start, tgbot.MatchTypeExact, h.Start.Handle)
 	b.RegisterHandler(tgbot.HandlerTypeMessageText, telegram.Help, tgbot.MatchTypeExact, h.Help.Handle)
 	b.RegisterHandler(tgbot.HandlerTypeMessageText, telegram.Goal, tgbot.MatchTypePrefix, h.SetGoal.Handle)
+	b.RegisterHandler(tgbot.HandlerTypeMessageText, telegram.Link, tgbot.MatchTypePrefix, h.Link.Handle)
 
 	b.RegisterHandler(tgbot.HandlerTypeMessageText, "", tgbot.MatchTypePrefix, h.Text.Handle)
 
