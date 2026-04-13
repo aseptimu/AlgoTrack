@@ -140,7 +140,7 @@ func buildListMessage(tasks []model.Task, difficulty *string, offset, total int6
 
 	page := offset/pageSize + 1
 	totalPages := (total + pageSize - 1) / pageSize
-	sb.WriteString(fmt.Sprintf("<b>Solved problems%s</b> (page %d/%d)\n\n", filterLabel, page, totalPages))
+	fmt.Fprintf(&sb, "<b>Solved problems%s</b> (page %d/%d)\n\n", filterLabel, page, totalPages)
 
 	for i, task := range tasks {
 		num := offset + int64(i) + 1
@@ -165,8 +165,8 @@ func buildListMessage(tasks []model.Task, difficulty *string, offset, total int6
 			taskLine = fmt.Sprintf(`<a href="%s">%d. %s</a>`, html.EscapeString(task.Link), task.TaskNumber, title)
 		}
 
-		sb.WriteString(fmt.Sprintf("%d) %s %s\n   %s | Reviews: %d\n",
-			num, taskLine, diffBadge, solvedAt, task.ReviewCount))
+		fmt.Fprintf(&sb, "%d) %s %s\n   %s | Reviews: %d\n",
+			num, taskLine, diffBadge, solvedAt, task.ReviewCount)
 	}
 
 	return sb.String()

@@ -73,16 +73,16 @@ func buildStatsMessage(result *model.UserStatsResult) string {
 	sb.WriteString("<b>Your Progress Dashboard</b>\n\n")
 
 	// Total solved.
-	sb.WriteString(fmt.Sprintf("Solved: <b>%d</b>\n", result.Stats.Total))
-	sb.WriteString(fmt.Sprintf("  Easy: <b>%d</b>\n", result.Stats.Easy))
-	sb.WriteString(fmt.Sprintf("  Medium: <b>%d</b>\n", result.Stats.Medium))
-	sb.WriteString(fmt.Sprintf("  Hard: <b>%d</b>\n", result.Stats.Hard))
+	fmt.Fprintf(&sb, "Solved: <b>%d</b>\n", result.Stats.Total)
+	fmt.Fprintf(&sb, "  Easy: <b>%d</b>\n", result.Stats.Easy)
+	fmt.Fprintf(&sb, "  Medium: <b>%d</b>\n", result.Stats.Medium)
+	fmt.Fprintf(&sb, "  Hard: <b>%d</b>\n", result.Stats.Hard)
 
 	// Streak.
-	sb.WriteString(fmt.Sprintf("\nStreak: <b>%d</b> days\n", result.Streak))
+	fmt.Fprintf(&sb, "\nStreak: <b>%d</b> days\n", result.Streak)
 
 	// Pending reviews.
-	sb.WriteString(fmt.Sprintf("Pending reviews: <b>%d</b>\n", result.PendingReviews))
+	fmt.Fprintf(&sb, "Pending reviews: <b>%d</b>\n", result.PendingReviews)
 
 	// Goal progress.
 	if result.GoalProgress != nil && len(result.GoalProgress.Items) > 0 {
@@ -94,7 +94,7 @@ func buildStatsMessage(result *model.UserStatsResult) string {
 				pct = item.Solved * 100 / item.Goal
 			}
 			bar := progressBar(pct)
-			sb.WriteString(fmt.Sprintf("%s %s <b>%d / %d</b> (%d%%)\n", badge, bar, item.Solved, item.Goal, pct))
+			fmt.Fprintf(&sb, "%s %s <b>%d / %d</b> (%d%%)\n", badge, bar, item.Solved, item.Goal, pct)
 		}
 	}
 

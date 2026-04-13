@@ -269,6 +269,130 @@ func TestPoll_UserProviderErrorHandled(t *testing.T) {
 	}
 }
 
+// daySecond returns a Unix timestamp at the given hour MSK on day=base+offset,
+// where the base is 2026-04-13 in MSK. Used to keep test data calendar-aware.
+// MSK is UTC+3 with no DST.
+func daySecond(dayOffset int, hourMSK int) int64 {
+	base := time.Date(2026, 4, 13, hourMSK-3, 0, 0, 0, time.UTC)
+	return base.AddDate(0, 0, dayOffset).Unix()
+}
+
+func TestPoll_SameDayRepeatSuppressed(t *testing.T) {
+	f := &fakeFetcher{}
+	u := &fakeUsers{users: []model.User{mkUser(1, "alice")}}
+	s := &fakeSender{}
+	p := newTestPoller(f, u, s, Options{Enabled: true})
+
+	f.set("alice", []model.LeetCodeSubmission{mkSub("100", "two-sum", daySecond(0, 12))})
+	p.poll(context.Background())
+
+	// Same problem, 3 hours later, same calendar day MSK.
+	f.set("alice", []model.LeetCodeSubmission{
+		mkSub("101", "two-sum", daySecond(0, 15)),
+		mkSub("100", "two-sum", daySecond(0, 12)),
+	})
+	p.poll(context.Background())
+
+	if got := s.snapshot(); len(got) != 1 {
+		t.Fatalf("want exactly 1 send (same-day repeat suppressed), got %d", len(got))
+	}
+}
+
+func TestPoll_NextDayRepeatNotifies(t *testing.T) {
+	f := &fakeFetcher{}
+	u := &fakeUsers{users: []model.User{mkUser(1, "alice")}}
+	s := &fakeSender{}
+	p := newTestPoller(f, u, s, Options{Enabled: true})
+
+	f.set("alice", []model.LeetCodeSubmission{mkSub("100", "two-sum", daySecond(0, 12))})
+	p.poll(context.Background())
+
+	// Same problem on the next calendar day.
+	f.set("alice", []model.LeetCodeSubmission{
+		mkSub("200", "two-sum", daySecond(1, 12)),
+		mkSub("100", "two-sum", daySecond(0, 12)),
+	})
+	p.poll(context.Background())
+
+	if got := s.snapshot(); len(got) != 2 {
+		t.Fatalf("want 2 sends across two calendar days, got %d", len(got))
+	}
+}
+
+func TestPoll_DifferentProblemsSameDayBothNotify(t *testing.T) {
+	f := &fakeFetcher{}
+	u := &fakeUsers{users: []model.User{mkUser(1, "alice")}}
+	s := &fakeSender{}
+	p := newTestPoller(f, u, s, Options{Enabled: true})
+
+	f.set("alice", []model.LeetCodeSubmission{
+		mkSub("101", "add-two-numbers", daySecond(0, 13)),
+		mkSub("100", "two-sum", daySecond(0, 12)),
+	})
+	p.poll(context.Background())
+
+	if got := s.snapshot(); len(got) != 2 {
+		t.Fatalf("two distinct problems same day should both notify, got %d", len(got))
+	}
+}
+
+func TestPoll_SameDayRepeatDoesNotBlockOtherProblems(t *testing.T) {
+	f := &fakeFetcher{}
+	u := &fakeUsers{users: []model.User{mkUser(1, "alice")}}
+	s := &fakeSender{}
+	p := newTestPoller(f, u, s, Options{Enabled: true})
+
+	// First poll: notify on two-sum.
+	f.set("alice", []model.LeetCodeSubmission{mkSub("100", "two-sum", daySecond(0, 12))})
+	p.poll(context.Background())
+
+	// Second poll: same-day two-sum repeat AND a brand-new problem same day.
+	// The new problem must still notify; the repeat must be suppressed.
+	f.set("alice", []model.LeetCodeSubmission{
+		mkSub("102", "valid-parentheses", daySecond(0, 18)),
+		mkSub("101", "two-sum", daySecond(0, 15)),
+		mkSub("100", "two-sum", daySecond(0, 12)),
+	})
+	p.poll(context.Background())
+
+	sent := s.snapshot()
+	if len(sent) != 2 {
+		t.Fatalf("want 2 sends total (orig two-sum + valid-parentheses), got %d", len(sent))
+	}
+	if !contains(sent[0].Text, "two-sum") {
+		t.Errorf("first send should be two-sum, got %q", sent[0].Text)
+	}
+	if !contains(sent[1].Text, "valid-parentheses") {
+		t.Errorf("second send should be valid-parentheses, got %q", sent[1].Text)
+	}
+}
+
+func TestPoll_FailedSendDoesNotPoisonCooldown(t *testing.T) {
+	f := &fakeFetcher{}
+	u := &fakeUsers{users: []model.User{mkUser(1, "alice")}}
+	s := &fakeSender{err: errors.New("telegram down")}
+	p := newTestPoller(f, u, s, Options{Enabled: true})
+
+	f.set("alice", []model.LeetCodeSubmission{mkSub("100", "two-sum", daySecond(0, 12))})
+	p.poll(context.Background())
+
+	// Telegram came back. The same submission ID is no longer "new" (lastSeen advanced),
+	// but a fresh submission of the same problem same day should now succeed and notify
+	// because the previous attempt failed and the cooldown was not set.
+	s.mu.Lock()
+	s.err = nil
+	s.mu.Unlock()
+	f.set("alice", []model.LeetCodeSubmission{
+		mkSub("101", "two-sum", daySecond(0, 15)),
+		mkSub("100", "two-sum", daySecond(0, 12)),
+	})
+	p.poll(context.Background())
+
+	if got := s.snapshot(); len(got) != 1 {
+		t.Fatalf("after a failed send the cooldown must not be set; want 1 successful send, got %d", len(got))
+	}
+}
+
 func contains(haystack, needle string) bool {
 	for i := 0; i+len(needle) <= len(haystack); i++ {
 		if haystack[i:i+len(needle)] == needle {

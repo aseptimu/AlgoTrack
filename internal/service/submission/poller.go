@@ -10,9 +10,16 @@ import (
 	"time"
 
 	"github.com/aseptimu/AlgoTrack/internal/model"
+	"github.com/aseptimu/AlgoTrack/internal/timezone"
 	tgbot "github.com/go-telegram/bot"
 	tgmodels "github.com/go-telegram/bot/models"
 )
+
+// notifyKey identifies a per-user, per-problem cooldown bucket.
+type notifyKey struct {
+	userID int64
+	slug   string
+}
 
 const (
 	DefaultPollInterval     = 5 * time.Minute
@@ -59,9 +66,15 @@ type Poller struct {
 	interval         time.Duration
 	submissionsLimit int
 
-	// lastSeen tracks the latest submission ID per user to avoid duplicates.
+	// lastSeen tracks the latest submission ID per user to avoid re-processing
+	// submissions we've already inspected. Independent of notification dedup.
 	mu       sync.Mutex
 	lastSeen map[int64]string // userID -> last submission ID
+
+	// lastNotifiedDay tracks the last calendar day (Europe/Moscow) on which we
+	// notified a user about a given problem. A repeat solve of the same problem
+	// on the same day is suppressed; the next calendar day fires again.
+	lastNotifiedDay map[notifyKey]string // (userID, titleSlug) -> "YYYY-MM-DD"
 }
 
 // NewPoller constructs a Poller with default options (enabled, 5m interval, limit 10).
@@ -108,6 +121,7 @@ func NewPollerWithOptions(
 		interval:         opts.Interval,
 		submissionsLimit: opts.SubmissionsLimit,
 		lastSeen:         make(map[int64]string),
+		lastNotifiedDay:  make(map[notifyKey]string),
 	}
 }
 
@@ -233,10 +247,23 @@ func (p *Poller) checkUser(ctx context.Context, user model.User) {
 }
 
 func (p *Poller) processSubmission(ctx context.Context, user model.User, sub model.LeetCodeSubmission) {
-	// Try to extract problem number from the submission.
-	// LeetCode titleSlug doesn't directly give us the number,
-	// so we'll add the task via the task service which will look it up.
-	// For now, we notify the user and let them add it manually if auto-add fails.
+	ts, _ := strconv.ParseInt(sub.Timestamp, 10, 64)
+	submittedAt := time.Unix(ts, 0).In(timezone.MoscowLocation)
+	day := submittedAt.Format("2006-01-02")
+
+	key := notifyKey{userID: user.UserID, slug: sub.TitleSlug}
+	p.mu.Lock()
+	prevDay := p.lastNotifiedDay[key]
+	p.mu.Unlock()
+
+	if prevDay == day {
+		p.logger.Info("submission poller: same-day repeat, suppressed",
+			"userID", user.UserID,
+			"titleSlug", sub.TitleSlug,
+			"day", day,
+		)
+		return
+	}
 
 	p.logger.Info("submission poller: new accepted submission",
 		"userID", user.UserID,
@@ -245,9 +272,7 @@ func (p *Poller) processSubmission(ctx context.Context, user model.User, sub mod
 		"submissionID", sub.ID,
 	)
 
-	ts, _ := strconv.ParseInt(sub.Timestamp, 10, 64)
-	submittedAt := time.Unix(ts, 0)
-	timeStr := submittedAt.In(time.FixedZone("MSK", 3*60*60)).Format("02.01.2006 15:04 MSK")
+	timeStr := submittedAt.Format("02.01.2006 15:04 MSK")
 
 	title := html.EscapeString(sub.Title)
 	link := fmt.Sprintf("https://leetcode.com/problems/%s/", sub.TitleSlug)
@@ -268,5 +293,10 @@ func (p *Poller) processSubmission(ctx context.Context, user model.User, sub mod
 		ParseMode: tgmodels.ParseModeHTML,
 	}); err != nil {
 		p.logger.Error("submission poller: failed to send notification", "err", err, "userID", user.UserID)
+		return
 	}
+
+	p.mu.Lock()
+	p.lastNotifiedDay[key] = day
+	p.mu.Unlock()
 }

@@ -214,7 +214,7 @@ func (c *HTTPLeetCodeClient) doSingleRequest(ctx context.Context, body []byte, r
 	if err != nil {
 		return fmt.Errorf("do request to leetcode: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == http.StatusTooManyRequests {
 		return &retryableError{fmt.Errorf("leetcode returned status 429")}
