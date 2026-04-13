@@ -12,6 +12,7 @@ import (
 	"math"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -141,6 +142,20 @@ type problemsetQuestionListResponse struct {
 				Difficulty         string `json:"difficulty"`
 			} `json:"questions"`
 		} `json:"problemsetQuestionList"`
+	} `json:"data"`
+	Errors []struct {
+		Message string `json:"message"`
+	} `json:"errors"`
+}
+
+type questionBySlugResponse struct {
+	Data struct {
+		Question struct {
+			QuestionFrontendID string `json:"questionFrontendId"`
+			Title              string `json:"title"`
+			TitleSlug          string `json:"titleSlug"`
+			Difficulty         string `json:"difficulty"`
+		} `json:"question"`
 	} `json:"data"`
 	Errors []struct {
 		Message string `json:"message"`
@@ -311,6 +326,52 @@ func (c *HTTPLeetCodeClient) GetProblemByNumber(ctx context.Context, number int6
 		TitleSlug:  sanitize(q.TitleSlug),
 		Difficulty: sanitize(q.Difficulty),
 		Link:       fmt.Sprintf("https://leetcode.com/problems/%s/", q.TitleSlug),
+		Platform:   "leetcode",
+	}, nil
+}
+
+// GetProblemBySlug fetches a problem by its title slug. Used by the poller
+// to resolve a recently accepted submission's slug into the full problem
+// info (number, title, difficulty) needed by the task service.
+func (c *HTTPLeetCodeClient) GetProblemBySlug(ctx context.Context, slug string) (*model.ProblemInfo, error) {
+	if slug == "" {
+		return nil, fmt.Errorf("empty leetcode slug")
+	}
+
+	gqlReq := leetCodeGraphQLRequest{
+		Query: `query questionBySlug($slug: String!) {
+  question(titleSlug: $slug) {
+    questionFrontendId
+    title
+    titleSlug
+    difficulty
+  }
+}`,
+		Variables: map[string]any{"slug": slug},
+	}
+
+	var gqlResp questionBySlugResponse
+	if err := c.doGraphQL(ctx, gqlReq, &gqlResp); err != nil {
+		return nil, err
+	}
+	if len(gqlResp.Errors) > 0 {
+		return nil, fmt.Errorf("leetcode graphql error: %s", gqlResp.Errors[0].Message)
+	}
+	if gqlResp.Data.Question.QuestionFrontendID == "" {
+		return nil, ErrProblemNotFound
+	}
+
+	q := gqlResp.Data.Question
+	number, err := strconv.Atoi(q.QuestionFrontendID)
+	if err != nil {
+		return nil, fmt.Errorf("parse question id %q: %w", q.QuestionFrontendID, err)
+	}
+	return &model.ProblemInfo{
+		Number:     number,
+		Title:      sanitize(q.Title),
+		TitleSlug:  sanitize(q.TitleSlug),
+		Difficulty: sanitize(q.Difficulty),
+		Link:       fmt.Sprintf("https://leetcode.com/problems/%s/", sanitize(q.TitleSlug)),
 		Platform:   "leetcode",
 	}, nil
 }

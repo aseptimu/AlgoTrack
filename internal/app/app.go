@@ -68,6 +68,7 @@ func Run(ctx context.Context) error {
 		leetcodeClient,
 		tgUserService,
 		taskService,
+		tgUserRepo,
 		myBot.Raw(),
 		logger,
 		submission.Options{

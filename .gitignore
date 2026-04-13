@@ -1,2 +1,13 @@
 .env
 .idea/
+.claude/
+
+# Local DB dumps and weekly pull-backup folder.
+backups/
+backup_*.sql
+*.sql.gz
+
+# Personal review notes / drafts that should stay out of source control.
+FEATURES.md
+REVIEW.md
+REVIEW_V2.md

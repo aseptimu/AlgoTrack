@@ -137,9 +137,31 @@ func (f *fakeTelegramServer) reset() {
 
 // fakeFetcher is a controllable LeetCode fetcher for poller scenarios.
 type fakeFetcher struct {
-	mu   sync.Mutex
-	subs map[string][]model.LeetCodeSubmission
-	err  error
+	mu       sync.Mutex
+	subs     map[string][]model.LeetCodeSubmission
+	problems map[string]*model.ProblemInfo
+	err      error
+}
+
+// GetProblemBySlug satisfies submission.LeetCodeFetcher so the poller can
+// resolve a slug into a full ProblemInfo. Tests register problems via
+// setProblem; the default returns a Stub with number 9999.
+func (f *fakeFetcher) GetProblemBySlug(_ context.Context, slug string) (*model.ProblemInfo, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if p, ok := f.problems[slug]; ok {
+		return p, nil
+	}
+	return &model.ProblemInfo{Number: 9999, Title: slug, TitleSlug: slug, Difficulty: "Easy", Link: "https://leetcode.com/problems/" + slug + "/"}, nil
+}
+
+func (f *fakeFetcher) setProblem(slug string, p *model.ProblemInfo) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.problems == nil {
+		f.problems = make(map[string]*model.ProblemInfo)
+	}
+	f.problems[slug] = p
 }
 
 func (f *fakeFetcher) GetRecentAcceptedSubmissions(_ context.Context, username string, limit int) ([]model.LeetCodeSubmission, error) {
@@ -221,11 +243,8 @@ func setupEnv(t *testing.T) *testEnv {
 	// Wipe ALL data so each test run is independent. Safe because this DB is
 	// a local docker-compose volume gated by ALGOTRACK_INTTEST_DB env var and
 	// never points at production.
-	if _, err := database.Pool.Exec(ctx, `TRUNCATE TABLE algo_tasks RESTART IDENTITY CASCADE`); err != nil {
-		t.Fatalf("truncate tasks: %v", err)
-	}
-	if _, err := database.Pool.Exec(ctx, `TRUNCATE TABLE tg_user RESTART IDENTITY CASCADE`); err != nil {
-		t.Fatalf("truncate users: %v", err)
+	if _, err := database.Pool.Exec(ctx, `TRUNCATE TABLE algo_tasks, notified_problem, tg_user RESTART IDENTITY CASCADE`); err != nil {
+		t.Fatalf("truncate: %v", err)
 	}
 
 	tgUserRepo := userrepo.NewTgUserRepo(database)
@@ -271,6 +290,7 @@ func setupEnv(t *testing.T) *testEnv {
 		fetcher,
 		userSvc,
 		taskSvc,
+		tgUserRepo,
 		bot.Raw(),
 		logger,
 		submission.Options{Enabled: true, Interval: 100 * time.Millisecond, SubmissionsLimit: 10},
@@ -402,74 +422,138 @@ func TestListRespondsForFreshUser(t *testing.T) {
 	}
 }
 
-func TestPollerEndToEnd_FullStack(t *testing.T) {
+func setSubs(f *fakeFetcher, username string, subs []model.LeetCodeSubmission) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.subs == nil {
+		f.subs = make(map[string][]model.LeetCodeSubmission)
+	}
+	f.subs[username] = subs
+}
+
+func (e *testEnv) countTasks(t *testing.T, taskNumber int) int64 {
+	t.Helper()
+	var n int64
+	if err := e.db.Pool.QueryRow(e.ctx,
+		`SELECT COALESCE(review_count, 0) FROM algo_tasks WHERE user_id = $1 AND task_number = $2`,
+		testUserID, taskNumber).Scan(&n); err != nil {
+		return 0
+	}
+	return n
+}
+
+func TestPollerEndToEnd_AutoAddAndPersist(t *testing.T) {
 	e := setupEnv(t)
 	e.sendCommand("/start")
 	e.sendCommand("/link lee215")
 	e.tgFake.reset()
 
-	// Prime the watermark for this user (the user was linked after the seed
-	// phase didn't run; the first poll for an unknown user silently absorbs).
-	e.fetcher.set("lee215", []model.LeetCodeSubmission{
-		{ID: "200", Title: "warmup", TitleSlug: "warmup", Timestamp: tsMSK(-30, 0)},
+	// Register problem metadata so GetProblemBySlug returns the right numbers.
+	e.fetcher.setProblem("two-sum", &model.ProblemInfo{Number: 1, Title: "Two Sum", TitleSlug: "two-sum", Difficulty: "Easy", Link: "https://leetcode.com/problems/two-sum/"})
+	e.fetcher.setProblem("valid-parentheses", &model.ProblemInfo{Number: 20, Title: "Valid Parentheses", TitleSlug: "valid-parentheses", Difficulty: "Easy", Link: "https://leetcode.com/problems/valid-parentheses/"})
+
+	// First poll: cold cache → silently absorb whatever lee215 has on top.
+	setSubs(e.fetcher, "lee215", []model.LeetCodeSubmission{
+		{ID: "100", Title: "warmup", TitleSlug: "warmup", Timestamp: tsMSK(-30, 0)},
 	})
 	e.poller.Poll(e.ctx)
-	time.Sleep(100 * time.Millisecond)
-	e.tgFake.reset()
+	if got := e.tgFake.sends(); len(got) != 0 {
+		t.Fatalf("first poll must be silent, got %d sends", len(got))
+	}
+	if e.countTasks(t, 9999) != 0 {
+		t.Errorf("first poll must not auto-add, got rows for warmup")
+	}
 
-	// Day 0: two distinct problems and one repeat of the first problem.
-	e.fetcher.set("lee215", []model.LeetCodeSubmission{
+	// Day 0: two distinct problems plus a same-day repeat of two-sum.
+	setSubs(e.fetcher, "lee215", []model.LeetCodeSubmission{
 		{ID: "303", Title: "Valid Parentheses", TitleSlug: "valid-parentheses", Timestamp: tsMSK(0, 18)},
 		{ID: "302", Title: "Two Sum", TitleSlug: "two-sum", Timestamp: tsMSK(0, 14)},
 		{ID: "301", Title: "Two Sum", TitleSlug: "two-sum", Timestamp: tsMSK(0, 12)},
+		{ID: "100", Title: "warmup", TitleSlug: "warmup", Timestamp: tsMSK(-30, 0)},
 	})
 	e.poller.Poll(e.ctx)
 	time.Sleep(150 * time.Millisecond)
 
 	sends := e.tgFake.sends()
-	// Expect: two-sum (one notification, repeat suppressed) + valid-parentheses.
-	gotProblems := 0
-	sawTwoSum, sawValid := false, false
-	for _, s := range sends {
-		if strings.Contains(s.Text, "two-sum") {
-			gotProblems++
-			sawTwoSum = true
-		}
-		if strings.Contains(s.Text, "valid-parentheses") {
-			gotProblems++
-			sawValid = true
-		}
+	if len(sends) != 2 {
+		t.Fatalf("expected 2 notifications (same-day two-sum dedup'd), got %d", len(sends))
 	}
-	if !sawTwoSum || !sawValid {
-		t.Fatalf("expected both two-sum and valid-parentheses notifications; got sends=%+v", sends)
+	if e.countTasks(t, 1) != 1 {
+		t.Errorf("two-sum should be auto-added exactly once, review_count = %d", e.countTasks(t, 1))
 	}
-	if gotProblems != 2 {
-		t.Fatalf("expected exactly 2 notifications (same-day two-sum dedup'd), got %d (sends=%+v)", gotProblems, sends)
+	if e.countTasks(t, 20) != 1 {
+		t.Errorf("valid-parentheses should be auto-added exactly once, review_count = %d", e.countTasks(t, 20))
 	}
 
-	// Same-day repeat poll -> silence.
+	// Same-day repeat poll → silence + no extra rows.
 	e.tgFake.reset()
-	e.fetcher.set("lee215", []model.LeetCodeSubmission{
+	setSubs(e.fetcher, "lee215", []model.LeetCodeSubmission{
 		{ID: "304", Title: "Two Sum", TitleSlug: "two-sum", Timestamp: tsMSK(0, 22)},
 		{ID: "303", Title: "Valid Parentheses", TitleSlug: "valid-parentheses", Timestamp: tsMSK(0, 18)},
-		{ID: "302", Title: "Two Sum", TitleSlug: "two-sum", Timestamp: tsMSK(0, 14)},
 	})
 	e.poller.Poll(e.ctx)
-	time.Sleep(150 * time.Millisecond)
 	if got := e.tgFake.sends(); len(got) != 0 {
-		t.Errorf("same-day repeat poll should be silent, got %d sends", len(got))
+		t.Errorf("same-day repeat must be silent, got %d sends", len(got))
+	}
+	if e.countTasks(t, 1) != 1 {
+		t.Errorf("same-day repeat must not increment review_count, got %d", e.countTasks(t, 1))
 	}
 
-	// Next-day repeat -> notifies again.
+	// Next-day repeat of two-sum → fires 1 notification AND increments review_count to 2.
 	e.tgFake.reset()
-	e.fetcher.set("lee215", []model.LeetCodeSubmission{
+	setSubs(e.fetcher, "lee215", []model.LeetCodeSubmission{
 		{ID: "401", Title: "Two Sum", TitleSlug: "two-sum", Timestamp: tsMSK(1, 12)},
 		{ID: "304", Title: "Two Sum", TitleSlug: "two-sum", Timestamp: tsMSK(0, 22)},
 	})
 	e.poller.Poll(e.ctx)
 	time.Sleep(150 * time.Millisecond)
-	sends = e.tgFake.sends()
-	if len(sends) != 1 || !strings.Contains(sends[0].Text, "two-sum") {
-		t.Errorf("next-day repeat should fire 1 notification for two-sum, got %+v", sends)
+	if got := e.tgFake.sends(); len(got) != 1 {
+		t.Errorf("next-day repeat should fire 1 notification, got %d", len(got))
 	}
+	if e.countTasks(t, 1) != 2 {
+		t.Errorf("next-day repeat must bump review_count to 2, got %d", e.countTasks(t, 1))
+	}
+}
+
+func TestPoller_StatePersistsAcrossPollerInstance(t *testing.T) {
+	e := setupEnv(t)
+	e.sendCommand("/start")
+	e.sendCommand("/link lee215")
+	e.tgFake.reset()
+
+	e.fetcher.setProblem("two-sum", &model.ProblemInfo{Number: 1, Title: "Two Sum", TitleSlug: "two-sum", Difficulty: "Easy", Link: "x"})
+	setSubs(e.fetcher, "lee215", []model.LeetCodeSubmission{
+		{ID: "100", Title: "warmup", TitleSlug: "warmup", Timestamp: tsMSK(-30, 0)},
+	})
+	e.poller.Poll(e.ctx) // absorb watermark "100"
+
+	setSubs(e.fetcher, "lee215", []model.LeetCodeSubmission{
+		{ID: "200", Title: "Two Sum", TitleSlug: "two-sum", Timestamp: tsMSK(0, 12)},
+		{ID: "100", Title: "warmup", TitleSlug: "warmup", Timestamp: tsMSK(-30, 0)},
+	})
+	e.poller.Poll(e.ctx)
+	time.Sleep(100 * time.Millisecond)
+	if len(e.tgFake.sends()) != 1 {
+		t.Fatalf("setup: want 1 notification, got %d", len(e.tgFake.sends()))
+	}
+
+	// Build a fresh Poller pointing at the SAME database (simulates restart).
+	p2 := submission.NewPollerWithOptions(
+		e.fetcher,
+		e.userSvc,
+		e.taskSvc,
+		userrepo.NewTgUserRepo(e.db),
+		e.bot.Raw(),
+		newSilentLoggerInt(),
+		submission.Options{Enabled: true, Interval: 100 * time.Millisecond, SubmissionsLimit: 10},
+	)
+	e.tgFake.reset()
+	p2.Poll(e.ctx) // same submissions, same DB, watermark already at 200
+	if got := e.tgFake.sends(); len(got) != 0 {
+		t.Errorf("restart must not re-fire notifications; got %d sends", len(got))
+	}
+}
+
+func newSilentLoggerInt() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }

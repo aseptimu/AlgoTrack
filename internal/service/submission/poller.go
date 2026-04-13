@@ -6,7 +6,6 @@ import (
 	"html"
 	"log/slog"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/aseptimu/AlgoTrack/internal/model"
@@ -14,12 +13,6 @@ import (
 	tgbot "github.com/go-telegram/bot"
 	tgmodels "github.com/go-telegram/bot/models"
 )
-
-// notifyKey identifies a per-user, per-problem cooldown bucket.
-type notifyKey struct {
-	userID int64
-	slug   string
-}
 
 const (
 	DefaultPollInterval     = 5 * time.Minute
@@ -39,9 +32,11 @@ type MessageSender interface {
 	SendMessage(ctx context.Context, params *tgbot.SendMessageParams) (*tgmodels.Message, error)
 }
 
-// LeetCodeFetcher fetches recent accepted submissions from LeetCode.
+// LeetCodeFetcher fetches recent accepted submissions and resolves slugs
+// into full problem info. Both methods are served by *client.HTTPLeetCodeClient.
 type LeetCodeFetcher interface {
 	GetRecentAcceptedSubmissions(ctx context.Context, username string, limit int) ([]model.LeetCodeSubmission, error)
+	GetProblemBySlug(ctx context.Context, slug string) (*model.ProblemInfo, error)
 }
 
 // UserProvider returns users who have linked their LeetCode accounts.
@@ -49,44 +44,48 @@ type UserProvider interface {
 	GetUsersWithLeetCode(ctx context.Context) ([]model.User, error)
 }
 
-// TaskAdder adds a task for a user.
-type TaskAdder interface {
-	Add(ctx context.Context, taskNumber int64, user *model.User) (*model.AddTaskResult, error)
+// TaskUpserter adds (or increments review_count for) a task by a pre-resolved
+// problem info. Implemented by *task.TaskService.AddByProblem.
+type TaskUpserter interface {
+	AddByProblem(ctx context.Context, user *model.User, problem *model.ProblemInfo) (*model.AddTaskResult, error)
 }
 
-// Poller periodically checks for new LeetCode submissions.
+// StateStore persists per-user poller state across restarts:
+//   - last accepted submission id we have inspected (the watermark)
+//   - per-(user, problem, day) marker so same-day repeats are suppressed
+type StateStore interface {
+	GetLastPolledSubmissionID(ctx context.Context, userID int64) (string, bool, error)
+	SetLastPolledSubmissionID(ctx context.Context, userID int64, submissionID string) error
+	WasNotifiedToday(ctx context.Context, userID int64, titleSlug, day string) (bool, error)
+	MarkNotified(ctx context.Context, userID int64, titleSlug, day string) error
+}
+
+// Poller periodically checks for new LeetCode submissions, auto-adds them as
+// tasks, and notifies the user. State is persisted in the StateStore so
+// behavior is deterministic across restarts and deploys.
 type Poller struct {
 	fetcher LeetCodeFetcher
 	users   UserProvider
-	tasks   TaskAdder
+	tasks   TaskUpserter
+	state   StateStore
 	bot     MessageSender
 	logger  *slog.Logger
 
 	enabled          bool
 	interval         time.Duration
 	submissionsLimit int
-
-	// lastSeen tracks the latest submission ID per user to avoid re-processing
-	// submissions we've already inspected. Independent of notification dedup.
-	mu       sync.Mutex
-	lastSeen map[int64]string // userID -> last submission ID
-
-	// lastNotifiedDay tracks the last calendar day (Europe/Moscow) on which we
-	// notified a user about a given problem. A repeat solve of the same problem
-	// on the same day is suppressed; the next calendar day fires again.
-	lastNotifiedDay map[notifyKey]string // (userID, titleSlug) -> "YYYY-MM-DD"
 }
 
 // NewPoller constructs a Poller with default options (enabled, 5m interval, limit 10).
-// Use NewPollerWithOptions to override.
 func NewPoller(
 	fetcher LeetCodeFetcher,
 	users UserProvider,
-	tasks TaskAdder,
+	tasks TaskUpserter,
+	state StateStore,
 	bot MessageSender,
 	logger *slog.Logger,
 ) *Poller {
-	return NewPollerWithOptions(fetcher, users, tasks, bot, logger, Options{
+	return NewPollerWithOptions(fetcher, users, tasks, state, bot, logger, Options{
 		Enabled:          true,
 		Interval:         DefaultPollInterval,
 		SubmissionsLimit: DefaultSubmissionsLimit,
@@ -97,7 +96,8 @@ func NewPoller(
 func NewPollerWithOptions(
 	fetcher LeetCodeFetcher,
 	users UserProvider,
-	tasks TaskAdder,
+	tasks TaskUpserter,
+	state StateStore,
 	bot MessageSender,
 	logger *slog.Logger,
 	opts Options,
@@ -115,32 +115,21 @@ func NewPollerWithOptions(
 		fetcher:          fetcher,
 		users:            users,
 		tasks:            tasks,
+		state:            state,
 		bot:              bot,
 		logger:           logger,
 		enabled:          opts.Enabled,
 		interval:         opts.Interval,
 		submissionsLimit: opts.SubmissionsLimit,
-		lastSeen:         make(map[int64]string),
-		lastNotifiedDay:  make(map[notifyKey]string),
 	}
 }
 
-// Start runs the polling loop. It blocks until ctx is cancelled.
-// If the poller is disabled, Start logs and returns immediately.
+// Start runs the polling loop until ctx is cancelled. If the poller is
+// disabled, Start logs and returns immediately.
 func (p *Poller) Start(ctx context.Context) {
 	if !p.enabled {
 		p.logger.Info("submission poller: disabled, not starting")
 		return
-	}
-
-	// Do an initial poll after a short delay to populate lastSeen without sending notifications.
-	initTimer := time.NewTimer(10 * time.Second)
-	select {
-	case <-ctx.Done():
-		initTimer.Stop()
-		return
-	case <-initTimer.C:
-		p.seedLastSeen(ctx)
 	}
 
 	ticker := time.NewTicker(p.interval)
@@ -156,38 +145,8 @@ func (p *Poller) Start(ctx context.Context) {
 	}
 }
 
-// seedLastSeen populates the last seen submissions without triggering notifications.
-func (p *Poller) seedLastSeen(ctx context.Context) {
-	users, err := p.users.GetUsersWithLeetCode(ctx)
-	if err != nil {
-		p.logger.Error("submission poller: failed to get users for seed", "err", err)
-		return
-	}
-
-	for _, user := range users {
-		if user.LeetCodeUsername == nil || *user.LeetCodeUsername == "" {
-			continue
-		}
-
-		submissions, err := p.fetcher.GetRecentAcceptedSubmissions(ctx, *user.LeetCodeUsername, 1)
-		if err != nil {
-			p.logger.Warn("submission poller: failed to seed submissions", "err", err, "userID", user.UserID, "leetcode", *user.LeetCodeUsername)
-			continue
-		}
-
-		if len(submissions) > 0 {
-			p.mu.Lock()
-			p.lastSeen[user.UserID] = submissions[0].ID
-			p.mu.Unlock()
-		}
-	}
-
-	p.logger.Info("submission poller: seed complete", "users", len(users))
-}
-
-// Poll runs a single poll cycle against all linked users and notifies on new
-// accepted submissions. Exposed for test runners and one-shot invocations;
-// the long-running loop in Start uses it internally.
+// Poll runs a single poll cycle against all linked users. Exposed for test
+// runners; the long-running loop in Start uses it internally.
 func (p *Poller) Poll(ctx context.Context) { p.poll(ctx) }
 
 func (p *Poller) poll(ctx context.Context) {
@@ -201,7 +160,6 @@ func (p *Poller) poll(ctx context.Context) {
 		if user.LeetCodeUsername == nil || *user.LeetCodeUsername == "" {
 			continue
 		}
-
 		p.checkUser(ctx, user)
 	}
 }
@@ -212,23 +170,24 @@ func (p *Poller) checkUser(ctx context.Context, user model.User) {
 		p.logger.Warn("submission poller: failed to fetch submissions", "err", err, "userID", user.UserID, "leetcode", *user.LeetCodeUsername)
 		return
 	}
-
 	if len(submissions) == 0 {
 		return
 	}
 
-	p.mu.Lock()
-	lastSeenID, alreadySeen := p.lastSeen[user.UserID]
-	p.mu.Unlock()
+	lastSeenID, hasWatermark, err := p.state.GetLastPolledSubmissionID(ctx, user.UserID)
+	if err != nil {
+		p.logger.Error("submission poller: failed to get watermark", "err", err, "userID", user.UserID)
+		return
+	}
 
-	// First-ever poll for this user (e.g. linked after the seed phase ran):
-	// silently absorb the current top-N as the watermark instead of flooding
-	// with old "new" notifications. Mirrors the seed semantics so /link mid-run
-	// behaves the same as a user that existed at startup.
-	if !alreadySeen {
-		p.mu.Lock()
-		p.lastSeen[user.UserID] = submissions[0].ID
-		p.mu.Unlock()
+	// First poll for this user (e.g. linked after the bot started, or fresh
+	// install). Silently absorb the current top as the watermark; do not flood
+	// the user with notifications about old submissions.
+	if !hasWatermark {
+		if err := p.state.SetLastPolledSubmissionID(ctx, user.UserID, submissions[0].ID); err != nil {
+			p.logger.Error("submission poller: failed to absorb watermark", "err", err, "userID", user.UserID)
+			return
+		}
 		p.logger.Info("submission poller: first-poll absorb",
 			"userID", user.UserID,
 			"leetcode", *user.LeetCodeUsername,
@@ -237,7 +196,7 @@ func (p *Poller) checkUser(ctx context.Context, user model.User) {
 		return
 	}
 
-	// Find new submissions (those we haven't seen yet).
+	// Find new submissions (those above the watermark, newest-first).
 	var newSubmissions []model.LeetCodeSubmission
 	for _, s := range submissions {
 		if s.ID == lastSeenID {
@@ -245,20 +204,21 @@ func (p *Poller) checkUser(ctx context.Context, user model.User) {
 		}
 		newSubmissions = append(newSubmissions, s)
 	}
-
 	if len(newSubmissions) == 0 {
 		return
 	}
 
-	// Update last seen to the most recent.
-	p.mu.Lock()
-	p.lastSeen[user.UserID] = submissions[0].ID
-	p.mu.Unlock()
+	// Advance watermark to the freshest seen id BEFORE processing, so a
+	// failure to process one submission does not cause it to be re-emitted
+	// on the next poll.
+	if err := p.state.SetLastPolledSubmissionID(ctx, user.UserID, submissions[0].ID); err != nil {
+		p.logger.Error("submission poller: failed to advance watermark", "err", err, "userID", user.UserID)
+		return
+	}
 
-	// Process new submissions in reverse order (oldest first).
+	// Process oldest-first so notifications arrive in chronological order.
 	for i := len(newSubmissions) - 1; i >= 0; i-- {
-		s := newSubmissions[i]
-		p.processSubmission(ctx, user, s)
+		p.processSubmission(ctx, user, newSubmissions[i])
 	}
 }
 
@@ -267,12 +227,12 @@ func (p *Poller) processSubmission(ctx context.Context, user model.User, sub mod
 	submittedAt := time.Unix(ts, 0).In(timezone.MoscowLocation)
 	day := submittedAt.Format("2006-01-02")
 
-	key := notifyKey{userID: user.UserID, slug: sub.TitleSlug}
-	p.mu.Lock()
-	prevDay := p.lastNotifiedDay[key]
-	p.mu.Unlock()
-
-	if prevDay == day {
+	already, err := p.state.WasNotifiedToday(ctx, user.UserID, sub.TitleSlug, day)
+	if err != nil {
+		p.logger.Error("submission poller: failed to check cooldown", "err", err, "userID", user.UserID)
+		return
+	}
+	if already {
 		p.logger.Info("submission poller: same-day repeat, suppressed",
 			"userID", user.UserID,
 			"titleSlug", sub.TitleSlug,
@@ -281,38 +241,84 @@ func (p *Poller) processSubmission(ctx context.Context, user model.User, sub mod
 		return
 	}
 
-	p.logger.Info("submission poller: new accepted submission",
+	// Resolve slug → full problem info (number, difficulty, link).
+	problem, err := p.fetcher.GetProblemBySlug(ctx, sub.TitleSlug)
+	if err != nil {
+		p.logger.Warn("submission poller: failed to resolve problem by slug",
+			"err", err,
+			"titleSlug", sub.TitleSlug,
+			"userID", user.UserID,
+		)
+		return
+	}
+
+	// Auto-upsert: creates the task on first solve, increments review_count
+	// on subsequent days. The same-day cooldown above prevents accidental
+	// double-counting if LeetCode reports the same problem twice in one day.
+	result, err := p.tasks.AddByProblem(ctx, &user, problem)
+	if err != nil {
+		p.logger.Error("submission poller: failed to auto-add task",
+			"err", err,
+			"taskNumber", problem.Number,
+			"userID", user.UserID,
+		)
+		return
+	}
+
+	p.logger.Info("submission poller: auto-added task",
 		"userID", user.UserID,
-		"title", sub.Title,
-		"titleSlug", sub.TitleSlug,
-		"submissionID", sub.ID,
+		"taskNumber", problem.Number,
+		"title", problem.Title,
+		"isReview", result.IsReview,
+		"reviewCount", result.Task.ReviewCount,
 	)
 
-	timeStr := submittedAt.Format("02.01.2006 15:04 MSK")
-
-	title := html.EscapeString(sub.Title)
-	link := fmt.Sprintf("https://leetcode.com/problems/%s/", sub.TitleSlug)
-
-	msg := fmt.Sprintf(
-		"🎉 <b>Новое решение на LeetCode!</b>\n\n"+
-			"<b><a href=\"%s\">%s</a></b>\n"+
-			"Время: <i>%s</i>\n\n"+
-			"Добавь задачу через <code>/add номер</code> для отслеживания повторений.",
-		html.EscapeString(link),
-		title,
-		timeStr,
-	)
-
-	if _, err := p.bot.SendMessage(ctx, &tgbot.SendMessageParams{
-		ChatID:    user.ChatID,
-		Text:      msg,
-		ParseMode: tgmodels.ParseModeHTML,
-	}); err != nil {
+	if err := p.sendNotification(ctx, user, submittedAt, problem, result); err != nil {
 		p.logger.Error("submission poller: failed to send notification", "err", err, "userID", user.UserID)
 		return
 	}
 
-	p.mu.Lock()
-	p.lastNotifiedDay[key] = day
-	p.mu.Unlock()
+	// Mark processed only after a successful send so a failed Telegram delivery
+	// does not silently swallow the day.
+	if err := p.state.MarkNotified(ctx, user.UserID, sub.TitleSlug, day); err != nil {
+		p.logger.Error("submission poller: failed to mark notified", "err", err, "userID", user.UserID)
+	}
+}
+
+func (p *Poller) sendNotification(
+	ctx context.Context,
+	user model.User,
+	submittedAt time.Time,
+	problem *model.ProblemInfo,
+	result *model.AddTaskResult,
+) error {
+	timeStr := submittedAt.Format("02.01.2006 15:04 MSK")
+	title := html.EscapeString(problem.Title)
+	link := html.EscapeString(problem.Link)
+	difficulty := html.EscapeString(problem.Difficulty)
+
+	header := "🎉 <b>Новое решение на LeetCode!</b>"
+	statusLine := fmt.Sprintf("✅ <b>Задача #%d добавлена</b>", problem.Number)
+	if result.IsReview {
+		statusLine = fmt.Sprintf("🔁 <b>Повторение #%d</b> (раз №%d)", problem.Number, result.Task.ReviewCount)
+	}
+
+	nextReview := ""
+	if result.Task.NextReviewAt != nil {
+		nextReview = "\nСледующее повторение: <i>" + html.EscapeString(
+			result.Task.NextReviewAt.In(timezone.MoscowLocation).Format("02.01.2006 15:04 MSK"),
+		) + "</i>"
+	}
+
+	msg := fmt.Sprintf(
+		"%s\n\n<b><a href=\"%s\">%s</a></b> [%s]\nВремя: <i>%s</i>\n\n%s%s",
+		header, link, title, difficulty, timeStr, statusLine, nextReview,
+	)
+
+	_, err := p.bot.SendMessage(ctx, &tgbot.SendMessageParams{
+		ChatID:    user.ChatID,
+		Text:      msg,
+		ParseMode: tgmodels.ParseModeHTML,
+	})
+	return err
 }
