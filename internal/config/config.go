@@ -1,10 +1,18 @@
 package config
 
-import "github.com/caarlos0/env/v11"
+import (
+	"time"
+
+	"github.com/caarlos0/env/v11"
+)
 
 type Config struct {
 	BotToken string `env:"TELEGRAM_TOKEN,required"`
 	DBURL    string `env:"DATABASE_URL,required"`
+
+	PollerEnabled          bool          `env:"POLLER_ENABLED" envDefault:"true"`
+	PollerInterval         time.Duration `env:"POLLER_INTERVAL" envDefault:"5m"`
+	PollerSubmissionsLimit int           `env:"POLLER_SUBMISSIONS_LIMIT" envDefault:"10"`
 }
 
 func NewConfig() (*Config, error) {

@@ -15,9 +15,22 @@ import (
 )
 
 const (
-	pollInterval     = 5 * time.Minute
-	submissionsLimit = 10
+	DefaultPollInterval     = 5 * time.Minute
+	DefaultSubmissionsLimit = 10
 )
+
+// Options configures the submission poller. Zero values fall back to defaults.
+type Options struct {
+	Enabled          bool
+	Interval         time.Duration
+	SubmissionsLimit int
+}
+
+// MessageSender is the minimal Telegram bot surface the poller needs.
+// *github.com/go-telegram/bot.Bot satisfies this interface.
+type MessageSender interface {
+	SendMessage(ctx context.Context, params *tgbot.SendMessageParams) (*tgmodels.Message, error)
+}
 
 // LeetCodeFetcher fetches recent accepted submissions from LeetCode.
 type LeetCodeFetcher interface {
@@ -36,39 +49,76 @@ type TaskAdder interface {
 
 // Poller periodically checks for new LeetCode submissions.
 type Poller struct {
-	fetcher  LeetCodeFetcher
-	users    UserProvider
-	tasks    TaskAdder
-	bot      *tgbot.Bot
-	logger   *slog.Logger
+	fetcher LeetCodeFetcher
+	users   UserProvider
+	tasks   TaskAdder
+	bot     MessageSender
+	logger  *slog.Logger
+
+	enabled          bool
+	interval         time.Duration
+	submissionsLimit int
 
 	// lastSeen tracks the latest submission ID per user to avoid duplicates.
 	mu       sync.Mutex
 	lastSeen map[int64]string // userID -> last submission ID
 }
 
+// NewPoller constructs a Poller with default options (enabled, 5m interval, limit 10).
+// Use NewPollerWithOptions to override.
 func NewPoller(
 	fetcher LeetCodeFetcher,
 	users UserProvider,
 	tasks TaskAdder,
-	bot *tgbot.Bot,
+	bot MessageSender,
 	logger *slog.Logger,
+) *Poller {
+	return NewPollerWithOptions(fetcher, users, tasks, bot, logger, Options{
+		Enabled:          true,
+		Interval:         DefaultPollInterval,
+		SubmissionsLimit: DefaultSubmissionsLimit,
+	})
+}
+
+// NewPollerWithOptions constructs a Poller and applies opts; zero fields fall back to defaults.
+func NewPollerWithOptions(
+	fetcher LeetCodeFetcher,
+	users UserProvider,
+	tasks TaskAdder,
+	bot MessageSender,
+	logger *slog.Logger,
+	opts Options,
 ) *Poller {
 	if logger == nil {
 		logger = slog.Default()
 	}
+	if opts.Interval <= 0 {
+		opts.Interval = DefaultPollInterval
+	}
+	if opts.SubmissionsLimit <= 0 {
+		opts.SubmissionsLimit = DefaultSubmissionsLimit
+	}
 	return &Poller{
-		fetcher:  fetcher,
-		users:    users,
-		tasks:    tasks,
-		bot:      bot,
-		logger:   logger,
-		lastSeen: make(map[int64]string),
+		fetcher:          fetcher,
+		users:            users,
+		tasks:            tasks,
+		bot:              bot,
+		logger:           logger,
+		enabled:          opts.Enabled,
+		interval:         opts.Interval,
+		submissionsLimit: opts.SubmissionsLimit,
+		lastSeen:         make(map[int64]string),
 	}
 }
 
 // Start runs the polling loop. It blocks until ctx is cancelled.
+// If the poller is disabled, Start logs and returns immediately.
 func (p *Poller) Start(ctx context.Context) {
+	if !p.enabled {
+		p.logger.Info("submission poller: disabled, not starting")
+		return
+	}
+
 	// Do an initial poll after a short delay to populate lastSeen without sending notifications.
 	initTimer := time.NewTimer(10 * time.Second)
 	select {
@@ -79,7 +129,7 @@ func (p *Poller) Start(ctx context.Context) {
 		p.seedLastSeen(ctx)
 	}
 
-	ticker := time.NewTicker(pollInterval)
+	ticker := time.NewTicker(p.interval)
 	defer ticker.Stop()
 
 	for {
@@ -121,6 +171,11 @@ func (p *Poller) seedLastSeen(ctx context.Context) {
 	p.logger.Info("submission poller: seed complete", "users", len(users))
 }
 
+// Poll runs a single poll cycle against all linked users and notifies on new
+// accepted submissions. Exposed for test runners and one-shot invocations;
+// the long-running loop in Start uses it internally.
+func (p *Poller) Poll(ctx context.Context) { p.poll(ctx) }
+
 func (p *Poller) poll(ctx context.Context) {
 	users, err := p.users.GetUsersWithLeetCode(ctx)
 	if err != nil {
@@ -138,7 +193,7 @@ func (p *Poller) poll(ctx context.Context) {
 }
 
 func (p *Poller) checkUser(ctx context.Context, user model.User) {
-	submissions, err := p.fetcher.GetRecentAcceptedSubmissions(ctx, *user.LeetCodeUsername, submissionsLimit)
+	submissions, err := p.fetcher.GetRecentAcceptedSubmissions(ctx, *user.LeetCodeUsername, p.submissionsLimit)
 	if err != nil {
 		p.logger.Warn("submission poller: failed to fetch submissions", "err", err, "userID", user.UserID, "leetcode", *user.LeetCodeUsername)
 		return
