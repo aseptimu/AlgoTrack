@@ -218,8 +218,24 @@ func (p *Poller) checkUser(ctx context.Context, user model.User) {
 	}
 
 	p.mu.Lock()
-	lastSeenID := p.lastSeen[user.UserID]
+	lastSeenID, alreadySeen := p.lastSeen[user.UserID]
 	p.mu.Unlock()
+
+	// First-ever poll for this user (e.g. linked after the seed phase ran):
+	// silently absorb the current top-N as the watermark instead of flooding
+	// with old "new" notifications. Mirrors the seed semantics so /link mid-run
+	// behaves the same as a user that existed at startup.
+	if !alreadySeen {
+		p.mu.Lock()
+		p.lastSeen[user.UserID] = submissions[0].ID
+		p.mu.Unlock()
+		p.logger.Info("submission poller: first-poll absorb",
+			"userID", user.UserID,
+			"leetcode", *user.LeetCodeUsername,
+			"watermark", submissions[0].ID,
+		)
+		return
+	}
 
 	// Find new submissions (those we haven't seen yet).
 	var newSubmissions []model.LeetCodeSubmission

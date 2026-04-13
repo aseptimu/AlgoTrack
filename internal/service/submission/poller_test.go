@@ -277,11 +277,23 @@ func daySecond(dayOffset int, hourMSK int) int64 {
 	return base.AddDate(0, 0, dayOffset).Unix()
 }
 
+// primeWatermark seeds p.lastSeen for `username` so subsequent polls behave
+// as if the user existed at the seed phase. Mirrors the production startup
+// path where seedLastSeen runs before any poll.
+func primeWatermark(p *Poller, f *fakeFetcher, userID int64, username string) {
+	f.set(username, []model.LeetCodeSubmission{mkSub("warm", "warmup", daySecond(-30, 0))})
+	p.seedLastSeen(context.Background())
+	// seedLastSeen iterates DB users; we use it via fakeUsers which is wired
+	// in newTestPoller. After this lastSeen[userID] = "warm".
+	_ = userID
+}
+
 func TestPoll_SameDayRepeatSuppressed(t *testing.T) {
 	f := &fakeFetcher{}
 	u := &fakeUsers{users: []model.User{mkUser(1, "alice")}}
 	s := &fakeSender{}
 	p := newTestPoller(f, u, s, Options{Enabled: true})
+	primeWatermark(p, f, 1, "alice")
 
 	f.set("alice", []model.LeetCodeSubmission{mkSub("100", "two-sum", daySecond(0, 12))})
 	p.poll(context.Background())
@@ -303,6 +315,7 @@ func TestPoll_NextDayRepeatNotifies(t *testing.T) {
 	u := &fakeUsers{users: []model.User{mkUser(1, "alice")}}
 	s := &fakeSender{}
 	p := newTestPoller(f, u, s, Options{Enabled: true})
+	primeWatermark(p, f, 1, "alice")
 
 	f.set("alice", []model.LeetCodeSubmission{mkSub("100", "two-sum", daySecond(0, 12))})
 	p.poll(context.Background())
@@ -324,6 +337,7 @@ func TestPoll_DifferentProblemsSameDayBothNotify(t *testing.T) {
 	u := &fakeUsers{users: []model.User{mkUser(1, "alice")}}
 	s := &fakeSender{}
 	p := newTestPoller(f, u, s, Options{Enabled: true})
+	primeWatermark(p, f, 1, "alice")
 
 	f.set("alice", []model.LeetCodeSubmission{
 		mkSub("101", "add-two-numbers", daySecond(0, 13)),
@@ -341,6 +355,7 @@ func TestPoll_SameDayRepeatDoesNotBlockOtherProblems(t *testing.T) {
 	u := &fakeUsers{users: []model.User{mkUser(1, "alice")}}
 	s := &fakeSender{}
 	p := newTestPoller(f, u, s, Options{Enabled: true})
+	primeWatermark(p, f, 1, "alice")
 
 	// First poll: notify on two-sum.
 	f.set("alice", []model.LeetCodeSubmission{mkSub("100", "two-sum", daySecond(0, 12))})
@@ -367,11 +382,49 @@ func TestPoll_SameDayRepeatDoesNotBlockOtherProblems(t *testing.T) {
 	}
 }
 
+// Regression: a user linked AFTER the seed phase (or any user the poller
+// has never inspected) must NOT receive a flood of "new submission"
+// notifications for their existing top-N. The first poll silently absorbs
+// the watermark.
+func TestPoll_FirstPollForUnknownUserAbsorbsSilently(t *testing.T) {
+	f := &fakeFetcher{}
+	u := &fakeUsers{users: []model.User{mkUser(1, "alice")}}
+	s := &fakeSender{}
+	p := newTestPoller(f, u, s, Options{Enabled: true})
+
+	f.set("alice", []model.LeetCodeSubmission{
+		mkSub("103", "z", daySecond(0, 18)),
+		mkSub("102", "y", daySecond(0, 14)),
+		mkSub("101", "x", daySecond(0, 12)),
+	})
+	p.poll(context.Background())
+
+	if got := s.snapshot(); len(got) != 0 {
+		t.Fatalf("first poll for an unknown user must be silent, got %d sends", len(got))
+	}
+	if p.lastSeen[1] != "103" {
+		t.Errorf("watermark should be set to top submission id, got %q", p.lastSeen[1])
+	}
+
+	// A genuinely new submission on the next poll must fire normally.
+	f.set("alice", []model.LeetCodeSubmission{
+		mkSub("104", "fresh", daySecond(0, 20)),
+		mkSub("103", "z", daySecond(0, 18)),
+		mkSub("102", "y", daySecond(0, 14)),
+		mkSub("101", "x", daySecond(0, 12)),
+	})
+	p.poll(context.Background())
+	if got := s.snapshot(); len(got) != 1 {
+		t.Errorf("after absorb, second poll with one fresh submission should fire 1 notification, got %d", len(got))
+	}
+}
+
 func TestPoll_FailedSendDoesNotPoisonCooldown(t *testing.T) {
 	f := &fakeFetcher{}
 	u := &fakeUsers{users: []model.User{mkUser(1, "alice")}}
 	s := &fakeSender{err: errors.New("telegram down")}
 	p := newTestPoller(f, u, s, Options{Enabled: true})
+	primeWatermark(p, f, 1, "alice")
 
 	f.set("alice", []model.LeetCodeSubmission{mkSub("100", "two-sum", daySecond(0, 12))})
 	p.poll(context.Background())

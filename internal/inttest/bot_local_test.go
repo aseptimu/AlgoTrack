@@ -408,6 +408,15 @@ func TestPollerEndToEnd_FullStack(t *testing.T) {
 	e.sendCommand("/link lee215")
 	e.tgFake.reset()
 
+	// Prime the watermark for this user (the user was linked after the seed
+	// phase didn't run; the first poll for an unknown user silently absorbs).
+	e.fetcher.set("lee215", []model.LeetCodeSubmission{
+		{ID: "200", Title: "warmup", TitleSlug: "warmup", Timestamp: tsMSK(-30, 0)},
+	})
+	e.poller.Poll(e.ctx)
+	time.Sleep(100 * time.Millisecond)
+	e.tgFake.reset()
+
 	// Day 0: two distinct problems and one repeat of the first problem.
 	e.fetcher.set("lee215", []model.LeetCodeSubmission{
 		{ID: "303", Title: "Valid Parentheses", TitleSlug: "valid-parentheses", Timestamp: tsMSK(0, 18)},
