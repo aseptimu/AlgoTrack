@@ -120,12 +120,19 @@ func (h *Handler) sendPage(ctx context.Context, b *tgbot.Bot, chatID, userID int
 	text := buildListMessage(tasks, difficulty, offset, total)
 	keyboard := buildPaginationKeyboard(difficulty, offset, total)
 
-	if _, err := b.SendMessage(ctx, &tgbot.SendMessageParams{
-		ChatID:      chatID,
-		Text:        text,
-		ParseMode:   models.ParseModeHTML,
-		ReplyMarkup: keyboard,
-	}); err != nil {
+	params := &tgbot.SendMessageParams{
+		ChatID:    chatID,
+		Text:      text,
+		ParseMode: models.ParseModeHTML,
+	}
+	// Only attach a reply markup when there are actual buttons. Passing a
+	// typed nil (*InlineKeyboardMarkup) serializes to "reply_markup": null,
+	// which Telegram rejects with "object expected as reply markup".
+	if keyboard != nil {
+		params.ReplyMarkup = keyboard
+	}
+
+	if _, err := b.SendMessage(ctx, params); err != nil {
 		h.log.Error("failed to send list message", "err", err, "chatID", chatID)
 	}
 }
@@ -140,7 +147,7 @@ func buildListMessage(tasks []model.Task, difficulty *string, offset, total int6
 
 	page := offset/pageSize + 1
 	totalPages := (total + pageSize - 1) / pageSize
-	sb.WriteString(fmt.Sprintf("<b>Solved problems%s</b> (page %d/%d)\n\n", filterLabel, page, totalPages))
+	fmt.Fprintf(&sb, "<b>Solved problems%s</b> (page %d/%d)\n\n", filterLabel, page, totalPages)
 
 	for i, task := range tasks {
 		num := offset + int64(i) + 1
@@ -165,8 +172,8 @@ func buildListMessage(tasks []model.Task, difficulty *string, offset, total int6
 			taskLine = fmt.Sprintf(`<a href="%s">%d. %s</a>`, html.EscapeString(task.Link), task.TaskNumber, title)
 		}
 
-		sb.WriteString(fmt.Sprintf("%d) %s %s\n   %s | Reviews: %d\n",
-			num, taskLine, diffBadge, solvedAt, task.ReviewCount))
+		fmt.Fprintf(&sb, "%d) %s %s\n   %s | Reviews: %d\n",
+			num, taskLine, diffBadge, solvedAt, task.ReviewCount)
 	}
 
 	return sb.String()

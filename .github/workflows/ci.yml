@@ -17,10 +17,15 @@ jobs:
         with:
           go-version: "1.26"
 
-      - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
-        with:
-          version: latest
+      # Install golangci-lint from source so it is compiled with the same
+      # Go toolchain (1.26) the project targets. The pre-built binaries from
+      # golangci-lint-action are pinned to an older Go release and refuse to
+      # run against go1.26 with: "language version lower than targeted".
+      - name: Install golangci-lint
+        run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+
+      - name: Run golangci-lint
+        run: golangci-lint run ./...
 
   test:
     name: Test

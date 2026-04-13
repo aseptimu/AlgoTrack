@@ -64,7 +64,18 @@ func Run(ctx context.Context) error {
 	listHandler := list.New(taskService, tgUserService, logger)
 	statsHandler := stats.New(taskService, tgUserService, logger)
 	reminderService := review.NewReminderService(taskRepo, myBot.Raw(), logger)
-	submissionPoller := submission.NewPoller(leetcodeClient, tgUserService, taskService, myBot.Raw(), logger)
+	submissionPoller := submission.NewPollerWithOptions(
+		leetcodeClient,
+		tgUserService,
+		taskService,
+		myBot.Raw(),
+		logger,
+		submission.Options{
+			Enabled:          cfg.PollerEnabled,
+			Interval:         cfg.PollerInterval,
+			SubmissionsLimit: cfg.PollerSubmissionsLimit,
+		},
+	)
 
 	router.Register(myBot.Raw(), router.Handlers{
 		Start:        startHandler,

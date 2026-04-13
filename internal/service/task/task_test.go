@@ -331,7 +331,7 @@ func TestNewTaskService_NilLogger(t *testing.T) {
 		nil,
 	)
 	if svc == nil {
-		t.Error("expected non-nil service")
+		t.Fatal("expected non-nil service")
 	}
 	if svc.logger == nil {
 		t.Error("expected default logger when nil passed")
