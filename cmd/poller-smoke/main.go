@@ -80,6 +80,7 @@ func main() {
 		leetcodeClient,
 		tgUserService,
 		taskService,
+		tgUserRepo,
 		stdoutSender{},
 		logger,
 		submission.Options{

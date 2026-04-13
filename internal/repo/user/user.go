@@ -116,3 +116,54 @@ func (t *TgUserRepo) GetUsersWithLeetCode(ctx context.Context) ([]model.User, er
 	}
 	return users, rows.Err()
 }
+
+// GetLastPolledSubmissionID returns the last accepted submission id we've
+// inspected for this user, or "" with found=false if none was recorded yet.
+// Used by the poller to dedup across restarts.
+func (t *TgUserRepo) GetLastPolledSubmissionID(ctx context.Context, userID int64) (string, bool, error) {
+	var id *string
+	err := t.db.Pool.QueryRow(ctx,
+		`SELECT last_polled_submission_id FROM tg_user WHERE user_id = $1`,
+		userID,
+	).Scan(&id)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", false, nil
+		}
+		return "", false, err
+	}
+	if id == nil {
+		return "", false, nil
+	}
+	return *id, true, nil
+}
+
+func (t *TgUserRepo) SetLastPolledSubmissionID(ctx context.Context, userID int64, submissionID string) error {
+	_, err := t.db.Pool.Exec(ctx,
+		`UPDATE tg_user SET last_polled_submission_id = $2 WHERE user_id = $1`,
+		userID, submissionID,
+	)
+	return err
+}
+
+// WasNotifiedToday reports whether the poller has already processed this
+// (user, problem, day) tuple. The day is passed as a string in YYYY-MM-DD
+// format so the caller controls the timezone (Europe/Moscow in our case).
+func (t *TgUserRepo) WasNotifiedToday(ctx context.Context, userID int64, titleSlug, day string) (bool, error) {
+	var exists bool
+	err := t.db.Pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM notified_problem WHERE user_id = $1 AND title_slug = $2 AND notified_day = $3::date)`,
+		userID, titleSlug, day,
+	).Scan(&exists)
+	return exists, err
+}
+
+func (t *TgUserRepo) MarkNotified(ctx context.Context, userID int64, titleSlug, day string) error {
+	_, err := t.db.Pool.Exec(ctx,
+		`INSERT INTO notified_problem (user_id, title_slug, notified_day)
+		 VALUES ($1, $2, $3::date)
+		 ON CONFLICT DO NOTHING`,
+		userID, titleSlug, day,
+	)
+	return err
+}

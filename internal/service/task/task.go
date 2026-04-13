@@ -17,6 +17,13 @@ type ProblemProvider interface {
 	GetProblemByNumber(ctx context.Context, number int64) (*model.ProblemInfo, error)
 }
 
+// ProblemBySlugProvider resolves a LeetCode title slug into full problem info.
+// Used by the poller to auto-add tasks from accepted submissions whose slug
+// is the only stable identifier returned by recentAcSubmissionList.
+type ProblemBySlugProvider interface {
+	GetProblemBySlug(ctx context.Context, slug string) (*model.ProblemInfo, error)
+}
+
 type UserEnsurer interface {
 	EnsureExistsAndGet(ctx context.Context, incomingUser *model.User) (*model.User, error)
 }
@@ -84,6 +91,19 @@ func (t *TaskService) Add(ctx context.Context, taskNumber int64, incomingUser *m
 			return nil, err
 		}
 	}
+
+	return t.addByProblem(ctx, user, problem)
+}
+
+// AddByProblem upserts a task using a pre-resolved problem info, without an
+// extra LeetCode lookup. Used by the poller, which already resolves the slug
+// via GetProblemBySlug. The user is assumed to already exist in the DB.
+func (t *TaskService) AddByProblem(ctx context.Context, user *model.User, problem *model.ProblemInfo) (*model.AddTaskResult, error) {
+	return t.addByProblem(ctx, user, problem)
+}
+
+func (t *TaskService) addByProblem(ctx context.Context, user *model.User, problem *model.ProblemInfo) (*model.AddTaskResult, error) {
+	taskNumber := int64(problem.Number)
 
 	reviewedAt := time.Now().UTC()
 	task := model.Task{
