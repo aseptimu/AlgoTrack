@@ -1,0 +1,51 @@
+package catalog
+
+// Popular is the fallback catalog walked after the curated lists are
+// exhausted. These are well-known, frequently-recommended LeetCode problems
+// that are not part of NeetCode 150 and serve as filler so /next never
+// dead-ends until a user has solved everything.
+var Popular = Catalog{
+	Name: "Popular fallback",
+	Problems: []Problem{
+		{9, "palindrome-number", "Palindrome Number", Easy, "Popular"},
+		{13, "roman-to-integer", "Roman to Integer", Easy, "Popular"},
+		{14, "longest-common-prefix", "Longest Common Prefix", Easy, "Popular"},
+		{26, "remove-duplicates-from-sorted-array", "Remove Duplicates from Sorted Array", Easy, "Popular"},
+		{27, "remove-element", "Remove Element", Easy, "Popular"},
+		{28, "find-the-index-of-the-first-occurrence-in-a-string", "Find the Index of the First Occurrence in a String", Easy, "Popular"},
+		{35, "search-insert-position", "Search Insert Position", Easy, "Popular"},
+		{58, "length-of-last-word", "Length of Last Word", Easy, "Popular"},
+		{67, "add-binary", "Add Binary", Easy, "Popular"},
+		{69, "sqrtx", "Sqrt(x)", Easy, "Popular"},
+		{88, "merge-sorted-array", "Merge Sorted Array", Easy, "Popular"},
+		{94, "binary-tree-inorder-traversal", "Binary Tree Inorder Traversal", Easy, "Popular"},
+		{101, "symmetric-tree", "Symmetric Tree", Easy, "Popular"},
+		{108, "convert-sorted-array-to-binary-search-tree", "Convert Sorted Array to Binary Search Tree", Easy, "Popular"},
+		{112, "path-sum", "Path Sum", Easy, "Popular"},
+		{118, "pascals-triangle", "Pascal's Triangle", Easy, "Popular"},
+		{119, "pascals-triangle-ii", "Pascal's Triangle II", Easy, "Popular"},
+		{169, "majority-element", "Majority Element", Easy, "Popular"},
+		{171, "excel-sheet-column-number", "Excel Sheet Column Number", Easy, "Popular"},
+		{205, "isomorphic-strings", "Isomorphic Strings", Easy, "Popular"},
+		{219, "contains-duplicate-ii", "Contains Duplicate II", Easy, "Popular"},
+		{228, "summary-ranges", "Summary Ranges", Easy, "Popular"},
+		{232, "implement-queue-using-stacks", "Implement Queue using Stacks", Easy, "Popular"},
+		{234, "palindrome-linked-list", "Palindrome Linked List", Easy, "Popular"},
+		{278, "first-bad-version", "First Bad Version", Easy, "Popular"},
+		{283, "move-zeroes", "Move Zeroes", Easy, "Popular"},
+		{290, "word-pattern", "Word Pattern", Easy, "Popular"},
+		{326, "power-of-three", "Power of Three", Easy, "Popular"},
+		{8, "string-to-integer-atoi", "String to Integer (atoi)", Medium, "Popular"},
+		{12, "integer-to-roman", "Integer to Roman", Medium, "Popular"},
+		{29, "divide-two-integers", "Divide Two Integers", Medium, "Popular"},
+		{31, "next-permutation", "Next Permutation", Medium, "Popular"},
+		{34, "find-first-and-last-position-of-element-in-sorted-array", "Find First and Last Position of Element in Sorted Array", Medium, "Popular"},
+		{38, "count-and-say", "Count and Say", Medium, "Popular"},
+		{47, "permutations-ii", "Permutations II", Medium, "Popular"},
+		{75, "sort-colors", "Sort Colors", Medium, "Popular"},
+		{82, "remove-duplicates-from-sorted-list-ii", "Remove Duplicates from Sorted List II", Medium, "Popular"},
+		{86, "partition-list", "Partition List", Medium, "Popular"},
+		{122, "best-time-to-buy-and-sell-stock-ii", "Best Time to Buy and Sell Stock II", Medium, "Popular"},
+		{189, "rotate-array", "Rotate Array", Medium, "Popular"},
+	},
+}

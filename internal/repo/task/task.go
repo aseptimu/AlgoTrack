@@ -331,3 +331,87 @@ func (t *TaskRepo) GetDueReviews(ctx context.Context, nowTime time.Time) ([]mode
 
 	return batches, nil
 }
+
+// GetSolvedNumbers returns the set of LeetCode task numbers a user has any
+// row for in algo_tasks. Used by the recommender to skip already-tracked
+// problems.
+func (t *TaskRepo) GetSolvedNumbers(ctx context.Context, userID int64) (map[int]bool, error) {
+	rows, err := t.db.Pool.Query(ctx,
+		`SELECT task_number FROM algo_tasks WHERE user_id = $1 AND task_number IS NOT NULL`,
+		userID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("task.GetSolvedNumbers: %w", err)
+	}
+	defer rows.Close()
+
+	out := make(map[int]bool)
+	for rows.Next() {
+		var n int
+		if err := rows.Scan(&n); err != nil {
+			return nil, err
+		}
+		out[n] = true
+	}
+	return out, rows.Err()
+}
+
+// LastHardCreatedAt returns the most recent created_at among the user's
+// Hard-difficulty tasks. Returns ok=false if the user has none.
+func (t *TaskRepo) LastHardCreatedAt(ctx context.Context, userID int64) (time.Time, bool, error) {
+	var ts time.Time
+	err := t.db.Pool.QueryRow(ctx,
+		`SELECT created_at FROM algo_tasks
+		 WHERE user_id = $1 AND difficulty = 'Hard'
+		 ORDER BY created_at DESC LIMIT 1`,
+		userID,
+	).Scan(&ts)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return time.Time{}, false, nil
+		}
+		return time.Time{}, false, err
+	}
+	return ts, true, nil
+}
+
+// GetDueReviewsForUser returns due reviews for a single user, ordered by
+// next_review_at ASC (longest overdue first). Used by the daily reminder
+// when iterating per-user.
+func (t *TaskRepo) GetDueReviewsForUser(ctx context.Context, userID int64, nowTime time.Time) ([]model.DueReviewTask, error) {
+	rows, err := t.db.Pool.Query(ctx, `
+		SELECT
+			task_number,
+			COALESCE(description, ''),
+			link,
+			COALESCE(difficulty, ''),
+			review_count,
+			last_reviewed_at,
+			next_review_at
+		FROM algo_tasks
+		WHERE user_id = $1 AND next_review_at <= $2
+		ORDER BY next_review_at, task_number
+	`, userID, nowTime)
+	if err != nil {
+		return nil, fmt.Errorf("task.GetDueReviewsForUser: %w", err)
+	}
+	defer rows.Close()
+
+	var out []model.DueReviewTask
+	for rows.Next() {
+		var task model.DueReviewTask
+		if err := rows.Scan(
+			&task.TaskNumber,
+			&task.Title,
+			&task.Link,
+			&task.Difficulty,
+			&task.ReviewCount,
+			&task.LastReviewedAt,
+			&task.NextReviewAt,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, task)
+	}
+	return out, rows.Err()
+}

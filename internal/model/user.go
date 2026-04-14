@@ -7,6 +7,7 @@ type User struct {
 	ChatID           int64
 	Username         string
 	LeetCodeUsername *string
+	RecommendMode    string // "default" | "js" — recommendation source for /next & daily reminder
 	GoalTotal        *int64
 	GoalEasy         *int64
 	GoalMedium       *int64

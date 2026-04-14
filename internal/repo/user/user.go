@@ -45,13 +45,14 @@ func (t *TgUserRepo) Get(ctx context.Context, userId int64) (*model.User, error)
 	user := &model.User{}
 
 	err := t.db.Pool.QueryRow(ctx,
-		"SELECT user_id, chat_id, username, leetcode_username, created_at, goal_total, goal_easy, goal_medium, goal_hard FROM tg_user WHERE user_id=$1",
+		"SELECT user_id, chat_id, username, leetcode_username, recommend_mode, created_at, goal_total, goal_easy, goal_medium, goal_hard FROM tg_user WHERE user_id=$1",
 		userId,
 	).Scan(
 		&user.UserID,
 		&user.ChatID,
 		&user.Username,
 		&user.LeetCodeUsername,
+		&user.RecommendMode,
 		&user.CreatedAt,
 		&user.GoalTotal,
 		&user.GoalEasy,
@@ -166,4 +167,90 @@ func (t *TgUserRepo) MarkNotified(ctx context.Context, userID int64, titleSlug, 
 		userID, titleSlug, day,
 	)
 	return err
+}
+
+// GetRecommendMode returns the user's recommendation mode ("default" or "js").
+// Falls back to "default" if the row is missing for any reason.
+func (t *TgUserRepo) GetRecommendMode(ctx context.Context, userID int64) (string, error) {
+	var mode string
+	err := t.db.Pool.QueryRow(ctx,
+		`SELECT recommend_mode FROM tg_user WHERE user_id = $1`,
+		userID,
+	).Scan(&mode)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "default", nil
+		}
+		return "default", err
+	}
+	if mode == "" {
+		return "default", nil
+	}
+	return mode, nil
+}
+
+func (t *TgUserRepo) SetRecommendMode(ctx context.Context, userID int64, mode string) error {
+	_, err := t.db.Pool.Exec(ctx,
+		`UPDATE tg_user SET recommend_mode = $2 WHERE user_id = $1`,
+		userID, mode,
+	)
+	return err
+}
+
+// RecommendedNumbers returns the set of LeetCode task numbers that have
+// already been recommended to this user, so /next never offers the same
+// problem twice in a row.
+func (t *TgUserRepo) RecommendedNumbers(ctx context.Context, userID int64) (map[int]bool, error) {
+	rows, err := t.db.Pool.Query(ctx,
+		`SELECT task_number FROM recommended_problem WHERE user_id = $1`,
+		userID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make(map[int]bool)
+	for rows.Next() {
+		var n int
+		if err := rows.Scan(&n); err != nil {
+			return nil, err
+		}
+		out[n] = true
+	}
+	return out, rows.Err()
+}
+
+func (t *TgUserRepo) MarkRecommended(ctx context.Context, userID int64, taskNumber int) error {
+	_, err := t.db.Pool.Exec(ctx,
+		`INSERT INTO recommended_problem (user_id, task_number)
+		 VALUES ($1, $2)
+		 ON CONFLICT DO NOTHING`,
+		userID, taskNumber,
+	)
+	return err
+}
+
+// AllUsers returns every tg_user row. Used by the daily reminder cron to
+// iterate all users for the morning recommendation + review summary.
+func (t *TgUserRepo) AllUsers(ctx context.Context) ([]model.User, error) {
+	rows, err := t.db.Pool.Query(ctx,
+		`SELECT user_id, chat_id, username, leetcode_username, recommend_mode FROM tg_user`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var users []model.User
+	for rows.Next() {
+		var u model.User
+		var mode string
+		if err := rows.Scan(&u.UserID, &u.ChatID, &u.Username, &u.LeetCodeUsername, &mode); err != nil {
+			return nil, err
+		}
+		u.RecommendMode = mode
+		users = append(users, u)
+	}
+	return users, rows.Err()
 }
