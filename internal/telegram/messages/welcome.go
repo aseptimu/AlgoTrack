@@ -1,72 +1,69 @@
 package messages
 
-const WelcomeNoGoal = `
-Welcome to AlgoTrack
+// Commands is the canonical command list shown by /help and the welcome
+// flows. Sent with ParseMode HTML, so &lt; / &gt; render as < / >.
+const Commands = `<b>Команды</b>
+/start — приветствие и сброс к началу
+/help — этот список
+/add &lt;номер&gt; — отметить решённую задачу или повторение
+/goal &lt;число&gt; [easy|medium|hard] — поставить цель
+/link &lt;ник_leetcode&gt; — привязать аккаунт LeetCode для авто-трекинга
+/list [easy|medium|hard] — список решённых задач
+/stats — дашборд прогресса
+/next [js] — получить новую рекомендованную задачу
+/review — задачи на повторение на сегодня
+/mode default|js — переключить источник рекомендаций (NeetCode / 30 Days JS)`
 
-This bot helps you:
-• Track solved algorithm problems
-• Repeat them with spaced repetition
-• Reach your goal (e.g. 700 problems)
+// WelcomeNoGoal is sent on /start when the user has no goals set yet.
+// The %s placeholder is filled with Commands by the caller.
+const WelcomeNoGoal = `<b>Привет! Это AlgoTrack</b> 🚀
 
-Let's start.
+Я помогу тебе:
+• Отслеживать решённые задачи на LeetCode
+• Повторять их по spaced-repetition расписанию
+• Идти к цели (например, 700 задач)
 
-What is your goal?
+Выбери стартовую цель кнопкой ниже или поставь свою через /goal.
 
 %s`
 
-const Commands = `Available commands:
-/start - show welcome message
-/help - show all commands
-/add &lt;number&gt; - save solved LeetCode problem or mark repetition
-/goal &lt;number&gt; [easy|medium|hard] - set or update your goal
-/link &lt;leetcode_username&gt; - link your LeetCode account for auto-tracking
-/list [easy|medium|hard] - view solved problems
-/stats - progress dashboard
-/next [js] - get a recommended new problem to solve
-/review - show today's capped review list
-/mode default|js - switch the recommendation source for daily reminders`
-
-const Help = `
-AlgoTrack commands
+// Help is returned by /help.
+const Help = `<b>AlgoTrack — помощь</b>
 
 ` + Commands
 
-const GoalUsage = `
-Use the command like this:
+const GoalUsage = `Используй команду так:
 /goal 300
 /goal 100 easy
 /goal 300 medium`
 
-const InvalidGoal = `
-Please provide a valid positive number.
-Example:
+const InvalidGoal = `Нужно положительное число.
+Пример:
 /goal 300
 /goal 100 easy
 /goal 300 medium`
 
-const InvalidGoalDifficulty = `
-Use one of the supported difficulty levels: easy, medium, hard.
-Examples:
+const InvalidGoalDifficulty = `Допустимые сложности: easy, medium, hard.
+Пример:
 /goal 100 easy
 /goal 300 medium`
 
-const GoalSavedNoProgress = `
-<b>Goal saved</b>.`
+const GoalSavedNoProgress = `<b>Цель сохранена</b>.`
 
-const GoalSavedWithProgress = `
-<b>Goal saved</b>.
+const GoalSavedWithProgress = `<b>Цель сохранена</b>.
 
-<b>Current progress</b>:
+<b>Прогресс</b>:
 %s`
 
+// WelcomeWithProgress is shown to a returning user (already has goals set).
+// The trailing %s is filled with Commands by the caller.
 func WelcomeWithProgress(progressLines string) string {
-	return `
-<b>Welcome back to AlgoTrack</b>
+	return `<b>С возвращением в AlgoTrack</b>
 
-<b>Goals</b>:
+<b>Цели</b>:
 ` + progressLines + `
 
-Keep going 🚀
+Так держать 🚀
 
 %s`
 }

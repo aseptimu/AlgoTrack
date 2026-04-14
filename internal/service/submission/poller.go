@@ -285,6 +285,14 @@ func (p *Poller) processSubmission(ctx context.Context, user model.User, sub mod
 	}
 }
 
+// noPreview is a singleton link-preview-disabled options pointer used by
+// every Telegram message the poller sends. Keeps the chat clean — every
+// link the bot ever posts is a leetcode.com problem URL.
+var noPreview = func() *tgmodels.LinkPreviewOptions {
+	disabled := true
+	return &tgmodels.LinkPreviewOptions{IsDisabled: &disabled}
+}()
+
 func (p *Poller) sendNotification(
 	ctx context.Context,
 	user model.User,
@@ -297,28 +305,40 @@ func (p *Poller) sendNotification(
 	link := html.EscapeString(problem.Link)
 	difficulty := html.EscapeString(problem.Difficulty)
 
-	header := "🎉 <b>Новое решение на LeetCode!</b>"
-	statusLine := fmt.Sprintf("✅ <b>Задача #%d добавлена</b>", problem.Number)
+	// First-time solve gets the celebratory header. A repeat solve (review)
+	// uses a calmer one — we don't want to spam users with confetti for
+	// every spaced-repetition pass.
+	var msg string
 	if result.IsReview {
-		statusLine = fmt.Sprintf("🔁 <b>Повторение #%d</b> (раз №%d)", problem.Number, result.Task.ReviewCount)
+		nextReview := ""
+		if result.Task.NextReviewAt != nil {
+			nextReview = "\nСледующее повторение: <i>" + html.EscapeString(
+				result.Task.NextReviewAt.In(timezone.MoscowLocation).Format("02.01.2006 15:04 MSK"),
+			) + "</i>"
+		}
+		msg = fmt.Sprintf(
+			"🔁 <b>Повторение #%d</b> (раз №%d)\n<a href=\"%s\">%s</a> [%s]\nВремя: <i>%s</i>%s",
+			problem.Number, result.Task.ReviewCount,
+			link, title, difficulty, timeStr, nextReview,
+		)
+	} else {
+		nextReview := ""
+		if result.Task.NextReviewAt != nil {
+			nextReview = "\nСледующее повторение: <i>" + html.EscapeString(
+				result.Task.NextReviewAt.In(timezone.MoscowLocation).Format("02.01.2006 15:04 MSK"),
+			) + "</i>"
+		}
+		msg = fmt.Sprintf(
+			"🎉 <b>Новое решение на LeetCode!</b>\n\n<b><a href=\"%s\">%s</a></b> [%s]\nВремя: <i>%s</i>\n\n✅ <b>Задача #%d добавлена</b>%s",
+			link, title, difficulty, timeStr, problem.Number, nextReview,
+		)
 	}
-
-	nextReview := ""
-	if result.Task.NextReviewAt != nil {
-		nextReview = "\nСледующее повторение: <i>" + html.EscapeString(
-			result.Task.NextReviewAt.In(timezone.MoscowLocation).Format("02.01.2006 15:04 MSK"),
-		) + "</i>"
-	}
-
-	msg := fmt.Sprintf(
-		"%s\n\n<b><a href=\"%s\">%s</a></b> [%s]\nВремя: <i>%s</i>\n\n%s%s",
-		header, link, title, difficulty, timeStr, statusLine, nextReview,
-	)
 
 	_, err := p.bot.SendMessage(ctx, &tgbot.SendMessageParams{
-		ChatID:    user.ChatID,
-		Text:      msg,
-		ParseMode: tgmodels.ParseModeHTML,
+		ChatID:             user.ChatID,
+		Text:               msg,
+		ParseMode:          tgmodels.ParseModeHTML,
+		LinkPreviewOptions: noPreview,
 	})
 	return err
 }

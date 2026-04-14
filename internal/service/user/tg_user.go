@@ -87,7 +87,7 @@ func (t *TgUserService) BuildWelcomeMessage(ctx context.Context, user *model.Use
 	}
 
 	return fmt.Sprintf(
-		messages.WelcomeWithProgress(format.GoalLinesEN(progress.Items)),
+		messages.WelcomeWithProgress(format.GoalLines(progress.Items)),
 		messages.Commands,
 	), nil
 }
@@ -102,7 +102,7 @@ func (t *TgUserService) BuildGoalMessage(ctx context.Context, user *model.User) 
 		return messages.GoalSavedNoProgress, nil
 	}
 
-	return fmt.Sprintf(messages.GoalSavedWithProgress, format.GoalLinesEN(progress.Items)), nil
+	return fmt.Sprintf(messages.GoalSavedWithProgress, format.GoalLines(progress.Items)), nil
 }
 
 func (t *TgUserService) EnsureExistsAndGet(ctx context.Context, incomingUser *model.User) (*model.User, error) {

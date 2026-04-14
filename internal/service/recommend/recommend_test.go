@@ -177,6 +177,66 @@ func TestNext_FallsThroughCatalogChain(t *testing.T) {
 	}
 }
 
+func TestNextDailyBundle_EasyGivesTwo(t *testing.T) {
+	repo := &fakeRepo{}
+	s := newSvc(repo, time.Now())
+	out, err := s.NextDailyBundle(context.Background(), 1, "default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// First problem in NeetCode 150 is Contains Duplicate (Easy), second
+	// available Easy is Valid Anagram. Both should be returned.
+	if len(out) != 2 {
+		t.Fatalf("expected 2 picks for Easy day, got %d", len(out))
+	}
+	for _, p := range out {
+		if p.Difficulty != "Easy" {
+			t.Errorf("expected only Easy in daily bundle when first is Easy; got %s #%d", p.Difficulty, p.Number)
+		}
+	}
+}
+
+func TestNextDailyBundle_MediumGivesOne(t *testing.T) {
+	// Knock out every Easy so the first pick is Medium.
+	solved := map[int]bool{}
+	for _, p := range catalog.NeetCode150.Problems {
+		if p.Difficulty == "Easy" {
+			solved[p.Number] = true
+		}
+	}
+	repo := &fakeRepo{solved: solved}
+	s := newSvc(repo, time.Now())
+	out, err := s.NextDailyBundle(context.Background(), 1, "default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 1 {
+		t.Fatalf("Medium-day bundle should be exactly 1, got %d", len(out))
+	}
+	if out[0].Difficulty != "Medium" {
+		t.Errorf("first pick should be Medium, got %s", out[0].Difficulty)
+	}
+}
+
+func TestNextDailyBundle_ExhaustedReturnsEmpty(t *testing.T) {
+	rec := map[int]bool{}
+	for _, p := range catalog.NeetCode150.Problems {
+		rec[p.Number] = true
+	}
+	for _, p := range catalog.Popular.Problems {
+		rec[p.Number] = true
+	}
+	repo := &fakeRepo{rec: rec}
+	s := newSvc(repo, time.Now())
+	out, err := s.NextDailyBundle(context.Background(), 1, "default")
+	if err != nil {
+		t.Fatalf("exhausted catalog should return empty without error, got %v", err)
+	}
+	if len(out) != 0 {
+		t.Errorf("exhausted catalog should yield empty bundle, got %d picks", len(out))
+	}
+}
+
 func TestNext_ExhaustedReturnsSentinel(t *testing.T) {
 	rec := map[int]bool{}
 	for _, p := range catalog.NeetCode150.Problems {

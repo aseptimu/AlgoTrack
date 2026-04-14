@@ -406,7 +406,7 @@ func TestStatsRespondsForFreshUser(t *testing.T) {
 	if len(sends) == 0 {
 		t.Fatal("/stats should reply")
 	}
-	if !strings.Contains(sends[0].Text, "Solved") {
+	if !strings.Contains(sends[0].Text, "Решено") {
 		t.Errorf("stats reply should mention 'Solved', got %q", sends[0].Text)
 	}
 }
