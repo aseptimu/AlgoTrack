@@ -21,7 +21,10 @@ const Commands = `Available commands:
 /goal &lt;number&gt; [easy|medium|hard] - set or update your goal
 /link &lt;leetcode_username&gt; - link your LeetCode account for auto-tracking
 /list [easy|medium|hard] - view solved problems
-/stats - progress dashboard`
+/stats - progress dashboard
+/next [js] - get a recommended new problem to solve
+/review - show today's capped review list
+/mode default|js - switch the recommendation source for daily reminders`
 
 const Help = `
 AlgoTrack commands
