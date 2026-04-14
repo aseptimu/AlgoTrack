@@ -26,7 +26,7 @@ func buildAddSuccessMessage(result *model.AddTaskResult) string {
 	task := result.Task
 	stats := result.Stats
 
-	title := "Untitled problem"
+	title := "Без названия"
 	if task.Title != nil && *task.Title != "" {
 		title = html.EscapeString(*task.Title)
 	}

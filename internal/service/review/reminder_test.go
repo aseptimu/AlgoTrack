@@ -12,9 +12,8 @@ import (
 func TestFormatBundle_RecommendationOnly(t *testing.T) {
 	loc := time.FixedZone("MSK", 3*60*60)
 	b := MessageBundle{
-		Recommendation: &catalog.Problem{
-			Number: 1, TitleSlug: "two-sum", Title: "Two Sum",
-			Difficulty: "Easy", Topic: "Arrays & Hashing",
+		NewProblems: []catalog.Problem{
+			{Number: 1, TitleSlug: "two-sum", Title: "Two Sum", Difficulty: "Easy", Topic: "Arrays & Hashing"},
 		},
 	}
 	msg := FormatBundle(b, loc)
@@ -50,7 +49,7 @@ func TestFormatBundle_ReviewsOnly(t *testing.T) {
 func TestFormatBundle_BothBlocks(t *testing.T) {
 	loc := time.FixedZone("MSK", 3*60*60)
 	b := MessageBundle{
-		Recommendation: &catalog.Problem{Number: 20, TitleSlug: "valid-parentheses", Title: "Valid Parentheses", Difficulty: "Easy", Topic: "Stack"},
+		NewProblems: []catalog.Problem{{Number: 20, TitleSlug: "valid-parentheses", Title: "Valid Parentheses", Difficulty: "Easy", Topic: "Stack"}},
 		Reviews: []model.DueReviewTask{
 			{TaskNumber: 1, Title: "Two Sum", Link: "x", Difficulty: "Easy", LastReviewedAt: time.Now()},
 		},
@@ -65,6 +64,32 @@ func TestFormatBundle_EmptyIsTriviallyShort(t *testing.T) {
 	b := MessageBundle{}
 	if !b.Empty() {
 		t.Error("expected empty bundle to report Empty()=true")
+	}
+}
+
+func TestFormatBundle_AllClearMessage(t *testing.T) {
+	loc := time.FixedZone("MSK", 3*60*60)
+	msg := FormatBundle(MessageBundle{}, loc)
+	for _, want := range []string{"Доброе утро", "всё закрыто", "/next"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("missing %q in:\n%s", want, msg)
+		}
+	}
+}
+
+func TestFormatBundle_TwoEasyNewProblems(t *testing.T) {
+	loc := time.FixedZone("MSK", 3*60*60)
+	b := MessageBundle{
+		NewProblems: []catalog.Problem{
+			{Number: 217, TitleSlug: "contains-duplicate", Title: "Contains Duplicate", Difficulty: "Easy", Topic: "Arrays & Hashing"},
+			{Number: 242, TitleSlug: "valid-anagram", Title: "Valid Anagram", Difficulty: "Easy", Topic: "Arrays & Hashing"},
+		},
+	}
+	msg := FormatBundle(b, loc)
+	for _, want := range []string{"Новые задачи на сегодня", "#217 Contains Duplicate", "#242 Valid Anagram"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("missing %q in:\n%s", want, msg)
+		}
 	}
 }
 

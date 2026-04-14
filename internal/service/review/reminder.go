@@ -27,10 +27,13 @@ type DueReviewSource interface {
 	GetDueReviewsForUser(ctx context.Context, userID int64, nowTime time.Time) ([]model.DueReviewTask, error)
 }
 
-// Recommender picks a fresh problem for a user. The review service uses it
+// Recommender picks fresh problem(s) for a user. The review service uses it
 // to compose the morning bundle. *recommend.Service satisfies this.
+//   - Next returns a single problem (used by /next).
+//   - NextDailyBundle returns 1 problem normally, 2 if the first pick is Easy.
 type Recommender interface {
 	Next(ctx context.Context, userID int64, mode string) (*catalog.Problem, error)
+	NextDailyBundle(ctx context.Context, userID int64, mode string) ([]catalog.Problem, error)
 }
 
 // MessageSender is the minimal Telegram bot surface needed to send the bundle.
@@ -43,13 +46,15 @@ type MessageSender interface {
 // Exposed for tests so they can inspect what would be sent without going
 // through Telegram.
 type MessageBundle struct {
-	Recommendation *catalog.Problem
-	Reviews        []model.DueReviewTask
+	NewProblems []catalog.Problem
+	Reviews     []model.DueReviewTask
 }
 
-// Empty reports whether the bundle has nothing worth sending.
+// Empty reports whether the bundle has neither new problems nor reviews.
+// Empty bundles still get a message — the "all clear" celebratory note —
+// they just take a different formatter path.
 func (b MessageBundle) Empty() bool {
-	return b.Recommendation == nil && len(b.Reviews) == 0
+	return len(b.NewProblems) == 0 && len(b.Reviews) == 0
 }
 
 type ReminderService struct {
@@ -108,9 +113,9 @@ func (r *ReminderService) nextRun(now time.Time) time.Time {
 	return runAt
 }
 
-// SendDailyBundles iterates every user and sends a single laconic message
-// containing one fresh recommendation plus the capped due-review list.
-// Users with both empty are skipped silently.
+// SendDailyBundles iterates every user and sends a single laconic message:
+// 1 (or 2 Easy) fresh problem(s) + the capped due-review list, or an
+// "all clear" celebration when the user has nothing pending.
 func (r *ReminderService) SendDailyBundles(ctx context.Context, runAt time.Time) {
 	users, err := r.users.AllUsers(ctx)
 	if err != nil {
@@ -124,15 +129,13 @@ func (r *ReminderService) SendDailyBundles(ctx context.Context, runAt time.Time)
 			r.logger.Error("daily bundle: failed to build", "err", err, "userID", u.UserID)
 			continue
 		}
-		if bundle.Empty() {
-			continue
-		}
 
 		text := FormatBundle(bundle, r.location)
 		if _, err := r.bot.SendMessage(ctx, &tgbot.SendMessageParams{
-			ChatID:    u.ChatID,
-			Text:      text,
-			ParseMode: tgbotmodels.ParseModeHTML,
+			ChatID:             u.ChatID,
+			Text:               text,
+			ParseMode:          tgbotmodels.ParseModeHTML,
+			LinkPreviewOptions: noPreview,
 		}); err != nil {
 			r.logger.Error("daily bundle: send failed", "err", err, "userID", u.UserID)
 		}
@@ -140,7 +143,8 @@ func (r *ReminderService) SendDailyBundles(ctx context.Context, runAt time.Time)
 }
 
 // BuildBundle composes one user's morning bundle: the capped due-review
-// list and one fresh recommendation. Either side may be empty.
+// list and 1-or-2 fresh recommendations. Either or both may be empty —
+// the formatter renders an all-clear note in that case.
 func (r *ReminderService) BuildBundle(ctx context.Context, user model.User, asOf time.Time) (MessageBundle, error) {
 	var b MessageBundle
 
@@ -154,38 +158,58 @@ func (r *ReminderService) BuildBundle(ctx context.Context, user model.User, asOf
 	if mode == "" {
 		mode = "default"
 	}
-	rec, err := r.recommender.Next(ctx, user.UserID, mode)
+	picks, err := r.recommender.NextDailyBundle(ctx, user.UserID, mode)
 	if err != nil && !errors.Is(err, errCatalogExhausted) {
 		// Don't fail the whole bundle just because the recommender is unhappy.
 		r.logger.Warn("daily bundle: recommendation skipped", "err", err, "userID", user.UserID)
-	} else if rec != nil {
-		b.Recommendation = rec
+	} else {
+		b.NewProblems = picks
 	}
 
 	return b, nil
 }
 
+// noPreview is the link-preview-disabled options pointer reused by every
+// outgoing daily-bundle message. We never want big preview cards because
+// every link is leetcode.com.
+var noPreview = func() *tgbotmodels.LinkPreviewOptions {
+	disabled := true
+	return &tgbotmodels.LinkPreviewOptions{IsDisabled: &disabled}
+}()
+
 // errCatalogExhausted is an alias for the recommend package sentinel, kept
 // here so the daily reminder treats exhaustion as a non-error skip.
 var errCatalogExhausted = recommend.ErrCatalogExhausted
 
-// FormatBundle renders the morning message. Kept laconic per product req:
-// header + recommendation block (if any) + capped review list (if any) +
-// short hint about /add for marking repetitions.
+// FormatBundle renders the morning message. Kept laconic per product req.
+// Three modes:
+//   - all clear: empty bundle → celebratory note, nothing else
+//   - new problems only: header + new-problems block
+//   - new problems + reviews: header + both blocks + /add hint
 func FormatBundle(b MessageBundle, location *time.Location) string {
+	if b.Empty() {
+		return "☀️ <b>Доброе утро!</b>\n\n🎉 На сегодня всё закрыто — повторений нет, новых задач не осталось. Можешь отдохнуть или попросить ещё через <code>/next</code>."
+	}
+
 	var sb strings.Builder
 	sb.WriteString("☀️ <b>Доброе утро!</b>")
 
-	if b.Recommendation != nil {
-		p := b.Recommendation
-		fmt.Fprintf(&sb,
-			"\n\n📌 <b>Новая задача</b>\n<a href=\"%s\">#%d %s</a> [%s] · %s",
-			html.EscapeString(p.Link()),
-			p.Number,
-			html.EscapeString(p.Title),
-			html.EscapeString(p.Difficulty),
-			html.EscapeString(p.Topic),
-		)
+	if len(b.NewProblems) > 0 {
+		header := "📌 <b>Новая задача</b>"
+		if len(b.NewProblems) > 1 {
+			header = "📌 <b>Новые задачи на сегодня</b>"
+		}
+		sb.WriteString("\n\n" + header)
+		for _, p := range b.NewProblems {
+			fmt.Fprintf(&sb,
+				"\n<a href=\"%s\">#%d %s</a> [%s] · %s",
+				html.EscapeString(p.Link()),
+				p.Number,
+				html.EscapeString(p.Title),
+				html.EscapeString(p.Difficulty),
+				html.EscapeString(p.Topic),
+			)
+		}
 	}
 
 	if len(b.Reviews) > 0 {
@@ -193,7 +217,7 @@ func FormatBundle(b MessageBundle, location *time.Location) string {
 		for i, t := range b.Reviews {
 			title := t.Title
 			if title == "" {
-				title = fmt.Sprintf("Task %d", t.TaskNumber)
+				title = fmt.Sprintf("Задача %d", t.TaskNumber)
 			}
 			line := fmt.Sprintf("<a href=\"%s\">#%d %s</a>", html.EscapeString(t.Link), t.TaskNumber, html.EscapeString(title))
 			if t.Link == "" {
@@ -203,7 +227,7 @@ func FormatBundle(b MessageBundle, location *time.Location) string {
 			if diff == "" {
 				diff = "Easy"
 			}
-			fmt.Fprintf(&sb, "\n%d) %s [%s] · last %s",
+			fmt.Fprintf(&sb, "\n%d) %s [%s] · последнее %s",
 				i+1, line, html.EscapeString(diff),
 				t.LastReviewedAt.In(location).Format("02.01"),
 			)

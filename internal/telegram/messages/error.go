@@ -1,6 +1,5 @@
 package messages
 
-const InternalError = `⚠️ Something went wrong.
+const InternalError = `⚠️ Что-то пошло не так.
 
-Please try again in a moment.
-If the problem persists, use /start to restart the bot.`
+Попробуй ещё раз через минуту. Если не помогло — отправь /start.`

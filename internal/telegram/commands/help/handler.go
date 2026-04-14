@@ -23,5 +23,5 @@ func (h *Handler) Handle(ctx context.Context, b *tgbot.Bot, update *models.Updat
 	}
 
 	h.logger.Info("Received help command")
-	reply.Text(ctx, b, update.Message.Chat.ID, messages.Help)
+	reply.HTML(ctx, b, update.Message.Chat.ID, messages.Help)
 }

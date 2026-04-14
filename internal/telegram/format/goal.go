@@ -35,14 +35,3 @@ func GoalLines(items []model.GoalProgress) string {
 	return strings.Join(lines, "\n")
 }
 
-// GoalLinesEN formats goal progress items into HTML lines (English locale).
-func GoalLinesEN(items []model.GoalProgress) string {
-	lines := make([]string, 0, len(items))
-	for _, item := range items {
-		lines = append(lines, fmt.Sprintf(
-			"%s <b>%d / %d</b> <i>(remaining %d)</i>",
-			GoalBadge(item.Label), item.Solved, item.Goal, item.Remaining,
-		))
-	}
-	return strings.Join(lines, "\n")
-}

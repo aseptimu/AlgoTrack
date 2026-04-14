@@ -43,9 +43,10 @@ func (h *Handler) Handle(ctx context.Context, b *tgbot.Bot, update *models.Updat
 	}
 
 	message := &tgbot.SendMessageParams{
-		ChatID:    chatID,
-		Text:      text,
-		ParseMode: models.ParseModeHTML,
+		ChatID:             chatID,
+		Text:               text,
+		ParseMode:          models.ParseModeHTML,
+		LinkPreviewOptions: reply.NoPreview(),
 	}
 
 	if user.GoalTotal == nil && user.GoalEasy == nil && user.GoalMedium == nil && user.GoalHard == nil {

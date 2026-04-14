@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/aseptimu/AlgoTrack/internal/model"
+	"github.com/aseptimu/AlgoTrack/internal/telegram/messages"
 	"github.com/aseptimu/AlgoTrack/internal/telegram/reply"
 	tgbot "github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
@@ -53,14 +54,14 @@ func (h *Handler) Handle(ctx context.Context, b *tgbot.Bot, update *models.Updat
 	ensuredUser, err := h.users.EnsureExistsAndGet(ctx, user)
 	if err != nil {
 		h.log.Error("failed to ensure user for stats", "err", err, "userID", userID)
-		reply.Text(ctx, b, chatID, "Something went wrong. Try again later.")
+		reply.Text(ctx, b, chatID, messages.InternalError)
 		return
 	}
 
 	result, err := h.stats.GetUserStats(ctx, ensuredUser.UserID, ensuredUser)
 	if err != nil {
 		h.log.Error("failed to get user stats", "err", err, "userID", userID)
-		reply.Text(ctx, b, chatID, "Something went wrong. Try again later.")
+		reply.Text(ctx, b, chatID, messages.InternalError)
 		return
 	}
 
@@ -70,23 +71,23 @@ func (h *Handler) Handle(ctx context.Context, b *tgbot.Bot, update *models.Updat
 func buildStatsMessage(result *model.UserStatsResult) string {
 	var sb strings.Builder
 
-	sb.WriteString("<b>Your Progress Dashboard</b>\n\n")
+	sb.WriteString("<b>Твой прогресс</b>\n\n")
 
 	// Total solved.
-	fmt.Fprintf(&sb, "Solved: <b>%d</b>\n", result.Stats.Total)
+	fmt.Fprintf(&sb, "Решено: <b>%d</b>\n", result.Stats.Total)
 	fmt.Fprintf(&sb, "  Easy: <b>%d</b>\n", result.Stats.Easy)
 	fmt.Fprintf(&sb, "  Medium: <b>%d</b>\n", result.Stats.Medium)
 	fmt.Fprintf(&sb, "  Hard: <b>%d</b>\n", result.Stats.Hard)
 
 	// Streak.
-	fmt.Fprintf(&sb, "\nStreak: <b>%d</b> days\n", result.Streak)
+	fmt.Fprintf(&sb, "\nСтрик: <b>%d</b> дн.\n", result.Streak)
 
 	// Pending reviews.
-	fmt.Fprintf(&sb, "Pending reviews: <b>%d</b>\n", result.PendingReviews)
+	fmt.Fprintf(&sb, "Жду повторений: <b>%d</b>\n", result.PendingReviews)
 
 	// Goal progress.
 	if result.GoalProgress != nil && len(result.GoalProgress.Items) > 0 {
-		sb.WriteString("\n<b>Goals</b>\n")
+		sb.WriteString("\n<b>Цели</b>\n")
 		for _, item := range result.GoalProgress.Items {
 			badge := goalBadge(item.Label)
 			pct := int64(0)

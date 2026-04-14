@@ -49,6 +49,62 @@ func New(repo Repo, log *slog.Logger) *Service {
 // remaining eligible problem for the user.
 var ErrCatalogExhausted = errors.New("recommend: catalog exhausted")
 
+// NextDailyBundle returns the set of new problems to surface in the
+// 09:00 MSK morning message. It always picks one fresh problem; if that
+// pick happens to be Easy, it tries to add a SECOND Easy on top so easy
+// days get two warm-ups instead of one. Medium / Hard / catalog-exhausted
+// stop at exactly one problem. The returned slice is empty only when even
+// the first pick fails (catalog exhausted for this user).
+func (s *Service) NextDailyBundle(ctx context.Context, userID int64, mode string) ([]catalog.Problem, error) {
+	first, err := s.Next(ctx, userID, mode)
+	if err != nil {
+		if errors.Is(err, ErrCatalogExhausted) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	bundle := []catalog.Problem{*first}
+	if first.Difficulty != catalog.Easy {
+		return bundle, nil
+	}
+	second, err := s.nextOfDifficulty(ctx, userID, mode, catalog.Easy)
+	if err != nil || second == nil {
+		// No second Easy available, that's fine — keep the first pick.
+		return bundle, nil
+	}
+	return append(bundle, *second), nil
+}
+
+// nextOfDifficulty is the constrained sibling of Next: it only returns a
+// problem whose difficulty matches `want`. Used by NextDailyBundle to
+// guarantee the second pick on Easy days is itself Easy.
+func (s *Service) nextOfDifficulty(ctx context.Context, userID int64, mode, want string) (*catalog.Problem, error) {
+	solved, err := s.repo.GetSolvedNumbers(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	already, err := s.repo.RecommendedNumbers(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	for _, cat := range catalog.Chain(mode) {
+		for _, p := range cat.Problems {
+			if solved[p.Number] || already[p.Number] {
+				continue
+			}
+			if p.Difficulty != want {
+				continue
+			}
+			if err := s.repo.MarkRecommended(ctx, userID, p.Number); err != nil {
+				return nil, err
+			}
+			pp := p
+			return &pp, nil
+		}
+	}
+	return nil, nil
+}
+
 // Next picks the next problem to recommend, marks it as recommended, and
 // returns it. mode ∈ {"default", "js"}; unknown values fall back to default.
 func (s *Service) Next(ctx context.Context, userID int64, mode string) (*catalog.Problem, error) {

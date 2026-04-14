@@ -140,8 +140,8 @@ func TestBuildAddSuccessMessage(t *testing.T) {
 		}
 
 		msg := buildAddSuccessMessage(result)
-		if !strings.Contains(msg, "Untitled problem") {
-			t.Error("expected message to contain 'Untitled problem' for nil title")
+		if !strings.Contains(msg, "Без названия") {
+			t.Error("expected message to contain fallback title for nil title")
 		}
 	})
 }
