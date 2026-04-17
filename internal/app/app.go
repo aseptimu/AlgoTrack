@@ -119,9 +119,6 @@ type recommendRepo struct {
 func (r *recommendRepo) GetSolvedNumbers(ctx context.Context, userID int64) (map[int]bool, error) {
 	return r.tasks.GetSolvedNumbers(ctx, userID)
 }
-func (r *recommendRepo) RecommendedNumbers(ctx context.Context, userID int64) (map[int]bool, error) {
-	return r.users.RecommendedNumbers(ctx, userID)
-}
 func (r *recommendRepo) MarkRecommended(ctx context.Context, userID int64, n int) error {
 	return r.users.MarkRecommended(ctx, userID, n)
 }

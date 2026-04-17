@@ -197,30 +197,6 @@ func (t *TgUserRepo) SetRecommendMode(ctx context.Context, userID int64, mode st
 	return err
 }
 
-// RecommendedNumbers returns the set of LeetCode task numbers that have
-// already been recommended to this user, so /next never offers the same
-// problem twice in a row.
-func (t *TgUserRepo) RecommendedNumbers(ctx context.Context, userID int64) (map[int]bool, error) {
-	rows, err := t.db.Pool.Query(ctx,
-		`SELECT task_number FROM recommended_problem WHERE user_id = $1`,
-		userID,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	out := make(map[int]bool)
-	for rows.Next() {
-		var n int
-		if err := rows.Scan(&n); err != nil {
-			return nil, err
-		}
-		out[n] = true
-	}
-	return out, rows.Err()
-}
-
 func (t *TgUserRepo) MarkRecommended(ctx context.Context, userID int64, taskNumber int) error {
 	_, err := t.db.Pool.Exec(ctx,
 		`INSERT INTO recommended_problem (user_id, task_number)

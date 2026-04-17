@@ -3,13 +3,14 @@
 // Rules:
 //   - Walk the catalog chain for the user's mode ("default" or "js").
 //   - Skip problems already in the user's algo_tasks (solved/tracked).
-//   - Skip problems already in recommended_problem (already pitched).
 //   - Hard problems are throttled to at most 1 every 14 days, measured by
 //     the most recent algo_tasks row with difficulty='Hard' for the user.
 //   - The first eligible problem in catalog order wins.
 //
-// On a successful pick the service writes a row into recommended_problem
-// so subsequent calls don't re-pitch the same problem.
+// The engine still writes a row into recommended_problem on every pick so
+// we can look back at what was pitched (analytics), but the table does NOT
+// influence future picks — unsolved problems keep resurfacing until the user
+// moves past them by actually adding the task.
 package recommend
 
 import (
@@ -27,7 +28,6 @@ const HardCooldown = 14 * 24 * time.Hour
 // Repo is the persistence surface the recommender relies on.
 type Repo interface {
 	GetSolvedNumbers(ctx context.Context, userID int64) (map[int]bool, error)
-	RecommendedNumbers(ctx context.Context, userID int64) (map[int]bool, error)
 	MarkRecommended(ctx context.Context, userID int64, taskNumber int) error
 	LastHardCreatedAt(ctx context.Context, userID int64) (time.Time, bool, error)
 }
@@ -83,13 +83,9 @@ func (s *Service) nextOfDifficulty(ctx context.Context, userID int64, mode, want
 	if err != nil {
 		return nil, err
 	}
-	already, err := s.repo.RecommendedNumbers(ctx, userID)
-	if err != nil {
-		return nil, err
-	}
 	for _, cat := range catalog.Chain(mode) {
 		for _, p := range cat.Problems {
-			if solved[p.Number] || already[p.Number] {
+			if solved[p.Number] {
 				continue
 			}
 			if p.Difficulty != want {
@@ -112,10 +108,6 @@ func (s *Service) Next(ctx context.Context, userID int64, mode string) (*catalog
 	if err != nil {
 		return nil, err
 	}
-	already, err := s.repo.RecommendedNumbers(ctx, userID)
-	if err != nil {
-		return nil, err
-	}
 
 	skipHard := false
 	if last, ok, err := s.repo.LastHardCreatedAt(ctx, userID); err != nil {
@@ -126,7 +118,7 @@ func (s *Service) Next(ctx context.Context, userID int64, mode string) (*catalog
 
 	for _, cat := range catalog.Chain(mode) {
 		for _, p := range cat.Problems {
-			if solved[p.Number] || already[p.Number] {
+			if solved[p.Number] {
 				continue
 			}
 			if skipHard && p.Difficulty == catalog.Hard {
