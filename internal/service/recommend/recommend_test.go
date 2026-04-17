@@ -15,7 +15,7 @@ import (
 type fakeRepo struct {
 	mu       sync.Mutex
 	solved   map[int]bool
-	rec      map[int]bool
+	rec      map[int]bool // analytics of MarkRecommended calls, not a skip filter
 	lastHard time.Time
 	hasHard  bool
 	err      error
@@ -29,15 +29,6 @@ func (f *fakeRepo) GetSolvedNumbers(_ context.Context, _ int64) (map[int]bool, e
 	}
 	out := make(map[int]bool, len(f.solved))
 	for k, v := range f.solved {
-		out[k] = v
-	}
-	return out, nil
-}
-func (f *fakeRepo) RecommendedNumbers(_ context.Context, _ int64) (map[int]bool, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	out := make(map[int]bool, len(f.rec))
-	for k, v := range f.rec {
 		out[k] = v
 	}
 	return out, nil
@@ -78,9 +69,12 @@ func TestNext_PicksFirstUnseenInDefault(t *testing.T) {
 	}
 }
 
-func TestNext_SkipsSolvedAndRecommended(t *testing.T) {
+func TestNext_SkipsSolvedButReturnsPreviouslyRecommended(t *testing.T) {
 	first := catalog.NeetCode150.Problems[0]
 	second := catalog.NeetCode150.Problems[1]
+	// `second` was recommended before but user hasn't solved it — we still
+	// want to keep surfacing it so the user progresses linearly through the
+	// catalog instead of silently advancing past unsolved work.
 	repo := &fakeRepo{
 		solved: map[int]bool{first.Number: true},
 		rec:    map[int]bool{second.Number: true},
@@ -90,8 +84,8 @@ func TestNext_SkipsSolvedAndRecommended(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.Number == first.Number || p.Number == second.Number {
-		t.Errorf("returned a filtered entry: %+v", p)
+	if p.Number != second.Number {
+		t.Errorf("expected unsolved-but-previously-recommended #%d; got #%d", second.Number, p.Number)
 	}
 }
 
@@ -152,13 +146,13 @@ func TestNext_JsModeUsesJsCatalogFirst(t *testing.T) {
 }
 
 func TestNext_FallsThroughCatalogChain(t *testing.T) {
-	// Mark every NeetCode 150 problem as recommended so the engine has to
-	// walk into the Popular fallback.
-	rec := map[int]bool{}
+	// Mark every NeetCode 150 problem as solved so the engine has to walk
+	// into the Popular fallback.
+	solved := map[int]bool{}
 	for _, p := range catalog.NeetCode150.Problems {
-		rec[p.Number] = true
+		solved[p.Number] = true
 	}
-	repo := &fakeRepo{rec: rec}
+	repo := &fakeRepo{solved: solved}
 	s := newSvc(repo, time.Now())
 	p, err := s.Next(context.Background(), 1, "default")
 	if err != nil {
@@ -219,14 +213,14 @@ func TestNextDailyBundle_MediumGivesOne(t *testing.T) {
 }
 
 func TestNextDailyBundle_ExhaustedReturnsEmpty(t *testing.T) {
-	rec := map[int]bool{}
+	solved := map[int]bool{}
 	for _, p := range catalog.NeetCode150.Problems {
-		rec[p.Number] = true
+		solved[p.Number] = true
 	}
 	for _, p := range catalog.Popular.Problems {
-		rec[p.Number] = true
+		solved[p.Number] = true
 	}
-	repo := &fakeRepo{rec: rec}
+	repo := &fakeRepo{solved: solved}
 	s := newSvc(repo, time.Now())
 	out, err := s.NextDailyBundle(context.Background(), 1, "default")
 	if err != nil {
@@ -238,17 +232,36 @@ func TestNextDailyBundle_ExhaustedReturnsEmpty(t *testing.T) {
 }
 
 func TestNext_ExhaustedReturnsSentinel(t *testing.T) {
-	rec := map[int]bool{}
+	solved := map[int]bool{}
 	for _, p := range catalog.NeetCode150.Problems {
-		rec[p.Number] = true
+		solved[p.Number] = true
 	}
 	for _, p := range catalog.Popular.Problems {
-		rec[p.Number] = true
+		solved[p.Number] = true
 	}
-	repo := &fakeRepo{rec: rec}
+	repo := &fakeRepo{solved: solved}
 	s := newSvc(repo, time.Now())
 	_, err := s.Next(context.Background(), 1, "default")
 	if !errors.Is(err, ErrCatalogExhausted) {
 		t.Errorf("expected ErrCatalogExhausted, got %v", err)
+	}
+}
+
+func TestNext_UnsolvedResurfaceAcrossCalls(t *testing.T) {
+	// Core behavior: calling Next twice in a row with no algo_tasks change
+	// returns the SAME problem. Previously the second call would advance past
+	// the first pick because of the recommended_problem filter.
+	repo := &fakeRepo{}
+	s := newSvc(repo, time.Now())
+	first, err := s.Next(context.Background(), 1, "default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := s.Next(context.Background(), 1, "default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Number != second.Number {
+		t.Errorf("unsolved problem must keep resurfacing: first=#%d second=#%d", first.Number, second.Number)
 	}
 }

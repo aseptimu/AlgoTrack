@@ -76,6 +76,7 @@ func (h *Handler) HandleCallback(ctx context.Context, b *tgbot.Bot, update *mode
 	data := update.CallbackQuery.Data
 	userID := update.CallbackQuery.From.ID
 	chatID := update.CallbackQuery.Message.Message.Chat.ID
+	messageID := update.CallbackQuery.Message.Message.ID
 
 	// Format: list_<offset> or list_<difficulty>_<offset>
 	parts := strings.TrimPrefix(data, "list_")
@@ -98,7 +99,7 @@ func (h *Handler) HandleCallback(ctx context.Context, b *tgbot.Bot, update *mode
 		CallbackQueryID: update.CallbackQuery.ID,
 	})
 
-	h.sendPage(ctx, b, chatID, userID, difficulty, offset)
+	h.editPage(ctx, b, chatID, messageID, userID, difficulty, offset)
 }
 
 func (h *Handler) sendPage(ctx context.Context, b *tgbot.Bot, chatID, userID int64, difficulty *string, offset int64) {
@@ -136,6 +137,40 @@ func (h *Handler) sendPage(ctx context.Context, b *tgbot.Bot, chatID, userID int
 
 	if _, err := b.SendMessage(ctx, params); err != nil {
 		h.log.Error("failed to send list message", "err", err, "chatID", chatID)
+	}
+}
+
+// editPage replaces the current pagination message in place instead of posting
+// a fresh one per «Вперёд»/«Назад» click, so the chat doesn't end up with N
+// redundant copies of the list.
+func (h *Handler) editPage(ctx context.Context, b *tgbot.Bot, chatID int64, messageID int, userID int64, difficulty *string, offset int64) {
+	tasks, total, err := h.lister.List(ctx, userID, difficulty, offset, pageSize)
+	if err != nil {
+		h.log.Error("failed to list tasks", "err", err, "userID", userID)
+		return
+	}
+	if total == 0 {
+		// Shouldn't happen in practice — we only reach editPage via a button
+		// that was rendered off an existing non-empty page. Swallow silently.
+		return
+	}
+
+	text := buildListMessage(tasks, difficulty, offset, total)
+	keyboard := buildPaginationKeyboard(difficulty, offset, total)
+
+	params := &tgbot.EditMessageTextParams{
+		ChatID:             chatID,
+		MessageID:          messageID,
+		Text:               text,
+		ParseMode:          models.ParseModeHTML,
+		LinkPreviewOptions: reply.NoPreview(),
+	}
+	if keyboard != nil {
+		params.ReplyMarkup = *keyboard
+	}
+
+	if _, err := b.EditMessageText(ctx, params); err != nil {
+		h.log.Error("failed to edit list message", "err", err, "chatID", chatID, "messageID", messageID)
 	}
 }
 
